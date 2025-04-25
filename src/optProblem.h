@@ -1,0 +1,63 @@
+#ifndef OPT_PROBLEM_H
+#define OPT_PROBLEM_H
+
+#include <Eigen/Dense>
+#include <vector>
+#include <ceres/ceres.h>
+
+// Precomputed data (from previous steps)
+struct PrecomputedData {
+    int start_x;                        // Starting x-coordinate
+    int start_y;                        // Starting y-coordinate
+    int width;                          // Image width
+    int height;                         // Image height
+    Eigen::Matrix3d K;                  // Camera intrinsics
+    Eigen::MatrixXd I;                  // Grayscale images (pixels × lights)
+    Eigen::MatrixXd weights;            // Robust weights from IRLS (pixels × lights)
+    Eigen::VectorXd rho;                // Albedo (per-pixel)
+    Eigen::VectorXd phi;                // Light intensities (per-light)
+    std::vector<double> mu_i;           // LED anisotropy parameters (per-light)
+    std::vector<Eigen::Vector3d> n_s_i; // LED principal directions (per-light)
+    std::vector<Eigen::Vector3d> light_positions; // Known 3D positions of lights
+    std::vector<Eigen::Matrix3d> J_all_pixels;    // Jacobians for all pixels
+    std::vector<Eigen::Vector3d> light_dirs; // [pixel][light]
+    std::vector<double> light_distances;           // [pixel][light]
+    std::vector<double> anisotropy;          // [pixel][light]
+};
+
+// Ceres cost functor for depth optimization
+struct DepthCostFunctor {
+    DepthCostFunctor(int pixel_x, int pixel_y, int light_i,
+                    int width,
+                    double I_ji, double rho_j, double phi_i, 
+                    const Eigen::Matrix3d& K,
+                    const Eigen::Matrix3d& J,
+                    const double light_distance,
+                    const Eigen::Vector3d& light_dir,
+                    const double anisotropy);
+
+    template <typename T>
+    bool operator()(const T* const z_j,
+                   const T* const z_right,
+                   const T* const z_left,
+                   const T* const z_bottom,
+                   const T* const z_top,
+                   T* residual) const;
+
+private:
+    double I_ji, rho_j, phi_i;
+    int width;
+    Eigen::Matrix3d K;
+    const Eigen::Matrix3d& J;
+    int pixel_x, pixel_y;
+    int light_i;
+    double light_distance;
+    Eigen::Vector3d light_dir;
+    double anisotropy;
+    static int debug_count;
+};
+
+// Function to optimize the depth map
+void optimizeDepthMap(Eigen::VectorXd& z, const PrecomputedData& data);
+
+#endif // OPT_PROBLEM_H

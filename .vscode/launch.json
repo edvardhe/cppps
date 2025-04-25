@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug cppPS",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/cppPS", // Adjust the path to your compiled binary
+            "args": ["${workspaceFolder}/images"], // Replace with the directory containing your images
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake: build" // Matches the task in tasks.json
+        }
+    ]
+}
