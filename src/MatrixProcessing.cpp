@@ -215,7 +215,7 @@ void precomputeLightVectors(PrecomputedData& data, double z_init) {
 
         for (int i = 0; i < num_lights; ++i) {
             int idx = j * num_lights + i;
-            Eigen::Vector3d light_dir = x_j_3D - data.light_positions[i];
+            Eigen::Vector3d light_dir = data.light_positions[i] - x_j_3D;
             data.light_distances[idx] = light_dir.norm();
             data.light_dirs[idx] = light_dir.normalized();
 

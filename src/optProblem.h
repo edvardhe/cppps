@@ -27,28 +27,47 @@ struct PrecomputedData {
 
 // Ceres cost functor for depth optimization
 struct DepthCostFunctor {
-    DepthCostFunctor(int pixel_x, int pixel_y, int light_i,
-                    int width,
-                    double I_ji, double rho_j, double phi_i, 
-                    const Eigen::Matrix3d& K,
+    DepthCostFunctor(
+                    int x, int y,
+                    int widht, int height,
+                    double I_ji, double rho_j, double phi_i,
                     const Eigen::Matrix3d& J,
                     const double light_distance,
                     const Eigen::Vector3d& light_dir,
                     const double anisotropy);
 
     template <typename T>
-    bool operator()(const T* const z_j,
-                   const T* const z_right,
-                   const T* const z_left,
-                   const T* const z_bottom,
-                   const T* const z_top,
-                   T* residual) const;
+    bool operator()(
+        const T* const z_j,
+        const T* const z_right,
+        const T* const z_bottom,
+        T* residual) const;
+
+private:
+    int x_, y_;
+    int width_, height_;
+    double I_ji, rho_j, phi_i;
+    const Eigen::Matrix3d& J;
+    double light_distance;
+    Eigen::Vector3d light_dir;
+    double anisotropy;
+    static int debug_count;
+};
+
+struct NormalCostFunctor {
+    NormalCostFunctor(int pixel_x, int pixel_y, int light_i,
+                    int width,
+                    double I_ji, double rho_j, double phi_i,
+                    const double light_distance,
+                    const Eigen::Vector3d& light_dir,
+                    const double anisotropy);
+
+    template <typename T>
+    bool operator()(const T* const n_j, T* residual) const;
 
 private:
     double I_ji, rho_j, phi_i;
     int width;
-    Eigen::Matrix3d K;
-    const Eigen::Matrix3d& J;
     int pixel_x, pixel_y;
     int light_i;
     double light_distance;
@@ -57,7 +76,11 @@ private:
     static int debug_count;
 };
 
+
+
 // Function to optimize the depth map
-void optimizeDepthMap(Eigen::VectorXd& z, const PrecomputedData& data);
+void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& data);
+void runFullOptimization(PrecomputedData& data);
+
 
 #endif // OPT_PROBLEM_H

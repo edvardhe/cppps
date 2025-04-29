@@ -3,6 +3,8 @@
 #include <filesystem>
 #include <eigen3/Eigen/Dense>
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/eigen.hpp>
+#include <opencv2/core/utility.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include "MatrixProcessing.h"
@@ -43,14 +45,14 @@ int main(int argc, char** argv) {
     //}
 
     // 1. Load images from directory
-    std::string path = "/home/edvard/dev/projects/cppPS/images";
+    std::string path = "/home/edvard/dev/projects/cppPS/ratioImages";
     std::vector<std::string> image_names;
 
     // In main(), replace the image loading line with:
-    int start_x = 6500;  // Your desired X starting position
-    int start_y = 2281;  // Your desired Y starting position
-    int roi_width = 100;  // Your desired width
-    int roi_height = 100; // Your desired height
+    int start_x = 5600;  // Your desired X starting position
+    int start_y = 3446;  // Your desired Y starting position
+    int roi_width = 982;  // Your desired width
+    int roi_height = 544; // Your desired height
 
     // Load images with ROI
     Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
@@ -81,8 +83,8 @@ int main(int argc, char** argv) {
     data.height = roi_height; // Image height
     data.K = K_pixel; // Camera intrinsics
     data.I = images; // Input images
-    data.rho = images.rowwise().mean(); // Mean per pixel
-    data.phi = images.colwise().mean(); // Mean per light
+    data.rho = true ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
+    data.phi = true ? Eigen::VectorXd(n_images).setConstant(1.0) : images.colwise().mean(); // Mean per light
     data.light_positions = light_positions; // Your calibration data
     data.weights = Eigen::MatrixXd::Ones(data.I.rows(), data.I.cols());
 
@@ -102,24 +104,21 @@ int main(int argc, char** argv) {
 
     // 4. Initialize depth (log-depth)
     // Initialize depth as log-depth (z = log(̃z))
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     Eigen::VectorXd z(n_pixels);
-    z.setConstant(std::log(initial_depth)); // Log-depth initialization
+    //z.setConstant(std::log(initial_depth)); // Log-depth initialization
+    z.setConstant(initial_depth);             // Meter initialization
     //Add small noise to log-depth
-    z = z.unaryExpr([](double x) { return x + 0.0001 * (rand() / double(RAND_MAX) - 0.0001); });
+    //z = z.unaryExpr([](double x) { return x + 0.0001 * (rand() / double(RAND_MAX) - 0.0001); });
 
-    // 5. Run alternating optimization loop
-    for (int iter = 0; iter < 10; ++iter) {
-        std::cout << "Iteration " << iter << std::endl;
-        // θ-step: Update albedo and light intensities (your existing code)
-        //updateThetaRank1(data.rho, data.phi, data.I, data.weights, data.J_all_pixels);
-
-        // z-step: Update depth map
-        std::cout << "I rows: " << data.I.rows() << ", cols: " << data.I.cols() << std::endl;
-        optimizeDepthMap(z, data);
-
-        // Optional: Check convergence
-        // if (checkConvergence(z)) break;
-        Eigen::VectorXd depth = z.array().exp(); // Convert to actual depth
+    // z-step: Update depth map
+    std::cout << "I rows: " << data.I.rows() << ", cols: " << data.I.cols() << std::endl;
+    optimizeDepthMap(z, z.data(), data);
+    //optim
+    //runFullOptimization(data);
+    // Optional: Check convergence
+    // if (checkConvergence(z)) break;
+    Eigen::VectorXd depth = z.array().exp(); // Convert to actual depth
 
         // After solving, normalize and save depth map
         double z_min = depth.minCoeff();
@@ -140,9 +139,9 @@ int main(int argc, char** argv) {
         // Save the depth map
         cv::imwrite("../depth_map.png", depth_map);
 
-    }
+    //}
 
     // Final depth map: z contains log-depth values
-    Eigen::VectorXd depth = z.array().exp(); // Convert to actual depth
+    //Eigen::VectorXd depth = z.array().exp(); // Convert to actual depth
     return 0;
 }
