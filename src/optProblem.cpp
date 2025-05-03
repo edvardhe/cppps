@@ -276,57 +276,113 @@ DepthCostFunctor::DepthCostFunctor(
   light_distance(light_distance), light_dir(light_dir),
   anisotropy(anisotropy) {}
 
-// Implement operator()
-template <typename T>
-bool DepthCostFunctor::operator()(
-    const T* const z_j,
-    const T* const z_right,
-    const T* const z_bottom,
-    T* residual) const {
-        // TODO :: FIXA LJUSET!! fixa också grannarna så att de använder de grannar som finns det fuckar med kanterna
+// 1. Photometric residual only
+struct PhotometricResidual {
+    PhotometricResidual(
+    const double I_ji, const double rho_j, const double phi_i,
+    const Eigen::Matrix3d& J,
+    const double light_distance,
+    const Eigen::Vector3d& light_dir)
+: I_ji(I_ji), rho_j(rho_j), phi_i(phi_i), J(J),
+  light_distance(light_distance), light_dir(light_dir){}
 
+    template <typename T>
+    bool operator()(const T* const z_j,
+                    const T* const z_right,
+                    const T* const z_left,
+                    const T* const z_top,
+                    const T* const z_bottom,
+                    T* residual) const {
         // --- Gradient Calculation with Boundary Handling ---
         T dz_x, dz_y;
 
         //// center difference
-        //dz_x = (*z_right - *z_left) / T(2.0);
-        //dz_y = (*z_bottom - *z_top) / T(2.0);
-
-        //// forward difference
-        dz_x = (*z_j - *z_right);
-        dz_y = (*z_j - *z_bottom);
+        dz_x = (*z_right - *z_left) / T(2.0);
+        dz_y = (*z_bottom - *z_top) / T(2.0);
 
         Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
         Eigen::Matrix<T, 3, 1> n = J.transpose() * grad_z_neg1;
         n.normalize();
 
-        // Roughness penalty
-        T curvature = dz_x*dz_x + dz_y*dz_y;
-        T roughness_penalty_factor = T(7e6) * curvature;
-
-        // Depth prior
-        T depth_prior = T(2.147);  // Encourage depths > 2.0 units
-        T penalty = ceres::fmax(T(0.0), depth_prior - *z_j);
-        T depth_prior_penalty = T(5000.0) * penalty;  // Add as a second residual
-
         // Compute lighting
         Eigen::Matrix<T, 3, 1> light_dir_t = light_dir.cast<T>();
         T distance = T(light_distance);
-        T anisotropy = T(anisotropy);
 
         T falloff = T(1.0) / (distance * distance);
         Eigen::Matrix<T, 3, 1> s = falloff * light_dir_t;
         Eigen::Matrix<T, 1, 3> JsT = (J * s).transpose();
         T incoming_light = JsT * grad_z_neg1;
-        T light_estimate = ceres::fmax(s.dot(n),T(0.0));
+        T light_estimate = ceres::fmax(incoming_light,T(0.0));
         T albedo_adjusted_estimate = T(rho_j) * T(phi_i) * light_estimate;
 
         // Compute residual
-        residual[0] = abs(albedo_adjusted_estimate - T(I_ji));
-        residual[1] = roughness_penalty_factor;
-        residual[2] = depth_prior_penalty;
+        residual[0] = albedo_adjusted_estimate - T(I_ji);
         return true;
-}
+    }
+private:
+    double I_ji;
+    double rho_j;
+    double phi_i;
+    Eigen::Matrix3d J;
+    double light_distance;
+    Eigen::Vector3d light_dir;
+};
+
+// 2. Smoothness residual only
+struct SmoothnessResidual {
+    SmoothnessResidual() {}
+
+    template <typename T>
+    bool operator()(const T* const z_j,
+                    const T* const z_right,
+                    const T* const z_left,
+                    const T* const z_top,
+                    const T* const z_bottom,
+                    const T* const z_bottom_right,
+                    const T* const z_bottom_left,
+                    const T* const z_top_right,
+                    const T* const z_top_left,
+                    T* residual) const {
+        // First derivatives (gradient)
+        T dz_x = (*z_right - *z_left) / T(2.0);
+        T dz_y = (*z_bottom - *z_top) / T(2.0);
+
+        // Second derivatives for actual curvature
+        T d2z_dx2 = *z_right + *z_left - T(2.0) * (*z_j);
+        T d2z_dy2 = *z_bottom + *z_top - T(2.0) * (*z_j);
+        T d2z_dxdy = ((*z_bottom_right - *z_bottom_left) - (*z_top_right - *z_top_left)) / T(4.0);
+
+        // Option 2: Total Variation (TV) regularization (better edge preservation)
+        T gradient_magnitude = ceres::sqrt(dz_x * dz_x + dz_y * dz_y + T(1e-6));
+        T tv_penalty = gradient_magnitude;
+
+        // Option 4: Thin Plate Spline energy (often works well)
+        // T tps_penalty = d2z_dx2 * d2z_dx2 + T(2.0) * d2z_dxdy * d2z_dxdy + d2z_dy2 * d2z_dy2;
+
+
+        // Roughness penalty
+        T weight = T(1800.0);
+        residual[0] = tv_penalty * weight;
+        return true;
+    }
+};
+
+// 3. Curvature residual only
+struct depthResidual {
+    depthResidual(/* params */) { /* initialize */ }
+
+    template <typename T>
+    bool operator()(const T* const z_j,
+                    T* residual) const {
+        // Depth prior
+        T depth_prior = T(2.147);  // Encourage depths > 2.0 units
+        T penalty = ceres::fmax(T(0.0), depth_prior - *z_j);
+        T depth_prior_penalty = T(3000.0) * penalty;  // Add as a second residual
+        residual[0] = depth_prior_penalty; // Mean curvature
+        return true;
+    }
+};
+
 
 // Main function for depth optimization step
 void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& data) {
@@ -364,45 +420,78 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
         int y = j / image_width;
 
         // Skip boundary pixels (no neighbors exist)
-        if (x == image_width - 1 || y == image_height - 1) {
+        if (x == image_width - 1 || y == image_height - 1 || x == 0 || y == 0) {
             continue;
         }
 
         // Neighbor indices (safe, since we skipped boundaries)
         int j_right = j + 1;
+        int j_left = j - 1;
         int j_bottom = j + image_width;
+        int j_top = j - image_width;
+        int j_bottom_right = j + image_width + 1;
+        int j_bottom_left = j + image_width - 1;
+        int j_top_right = j - image_width + 1;
+        int j_top_left = j - image_width - 1;
 
         for (int i = 0; i < data.I.cols(); ++i) { // For each light
             if (data.weights(j, i) < 1e-3) continue;
             int idx = j * data.I.cols() + i;
-            ceres::CostFunction* cost_function =
-                new ceres::AutoDiffCostFunction<DepthCostFunctor, 3, 1, 1, 1>(
-                    new DepthCostFunctor(
+
+            ceres::CostFunction* photometric_cost_function =
+                new ceres::AutoDiffCostFunction<PhotometricResidual, 1, 1, 1, 1, 1, 1>(
+                    new PhotometricResidual(
                         data.I(j, i), data.rho(j), data.phi(i),
                         data.J_all_pixels[j],
                         data.light_distances[idx],
-                        data.light_dirs[idx],
-                        data.anisotropy[idx]
+                        data.light_dirs[idx]
                     )
+                );
+
+            ceres::CostFunction* smooth_cost_function =
+                new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>(
+                    new SmoothnessResidual()
+                );
+
+            ceres::CostFunction* depth_cost_function =
+                new ceres::AutoDiffCostFunction<depthResidual, 1, 1>(
+                    new depthResidual()
                 );
 
             // Add residual block with all 5 parameters
             problem.AddResidualBlock(
-                cost_function,
+                photometric_cost_function   ,
                 new ceres::CauchyLoss(1),
                 &z(j),        // Current depth
                 &z(j_right),  // Right neighbor
+                &z(j_left),
+                &z(j_top),
                 &z(j_bottom)  // Bottom neighbor
+            );
+
+            // Add residual block with all 5 parameters
+            problem.AddResidualBlock(
+                smooth_cost_function   ,
+                nullptr,
+                &z(j),        // Current depth
+                &z(j_right),  // Right neighbor
+                &z(j_left),
+                &z(j_top),
+                &z(j_bottom),  // Bottom neighbor
+                &z(j_bottom_right),  // Bottom-right neighbor
+                &z(j_bottom_left),  // Bottom-left neighbor
+                &z(j_top_right),  // Top-right neighbor
+                &z(j_top_left)  // Top-left neighbor
+            );
+
+            // Add residual block with all 5 parameters
+            problem.AddResidualBlock(
+                depth_cost_function   ,
+                nullptr,
+                &z(j)        // Current depth
             );
         }
     }
-
-    // After adding all residual blocks, set bounds for each z_j
-    const double delta_meters = 0.03;
-    // Compute bounds in log space
-    double initial_actual_depth = 2.147;
-    double lower_actual = initial_actual_depth - delta_meters;
-    double upper_actual = initial_actual_depth + delta_meters;
 
     for (int j = 0; j < z.size(); ++j) {
 
@@ -410,7 +499,10 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
         int y = j / image_width;
 
         if (x == 0 || x == image_width - 1 || y == 0 || y == image_height - 1) {
-            if (x == image_width - 1 && y == image_height - 1) continue;
+            //if (x == image_width - 1 && y == image_height - 1) continue;
+            //if (x == 0 && y == 0) continue;
+            //if (x == 0 && y == image_height - 1) continue;
+            //if (x == image_width - 1 && y == 0) continue;
             problem.SetParameterBlockConstant(&z(j));
             // OR: Set to a neighbor's value
             // if (x == image_width - 1) z(j) = z(j - 1);
@@ -421,15 +513,17 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     // Configure solver
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::CGNR;
-    options.preconditioner_type = ceres::IDENTITY;
-    options.sparse_linear_algebra_library_type = ceres::CUDA_SPARSE;
+    options.preconditioner_type = ceres::JACOBI;
+    options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
     options.max_num_iterations = 100;
     options.function_tolerance = 1e-6;
     options.gradient_tolerance = 1e-8;
     options.parameter_tolerance = 1e-8;
+    options.jacobi_scaling = true;
+    options.use_inner_iterations = true;
 
-    // Switch to line search
+
     options.minimizer_type = ceres::LINE_SEARCH;
 
     // Line search specific options
