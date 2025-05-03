@@ -49,10 +49,10 @@ int main(int argc, char** argv) {
     std::vector<std::string> image_names;
 
     // In main(), replace the image loading line with:
-    int start_x = 5600;  // Your desired X starting position
-    int start_y = 3446;  // Your desired Y starting position
-    int roi_width = 982;  // Your desired width
-    int roi_height = 544; // Your desired height
+    int start_x = 5687;  // Your desired X starting position
+    int start_y = 3553;  // Your desired Y starting position
+    int roi_width = 223;  // Your desired width
+    int roi_height = 180; // Your desired height
 
     // Load images with ROI
     Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
@@ -83,8 +83,8 @@ int main(int argc, char** argv) {
     data.height = roi_height; // Image height
     data.K = K_pixel; // Camera intrinsics
     data.I = images; // Input images
-    data.rho = true ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
-    data.phi = true ? Eigen::VectorXd(n_images).setConstant(1.0) : images.colwise().mean(); // Mean per light
+    data.rho = false ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
+    data.phi = false ? Eigen::VectorXd(n_images).setConstant(1.0) : images.colwise().mean(); // Mean per light
     data.light_positions = light_positions; // Your calibration data
     data.weights = Eigen::MatrixXd::Ones(data.I.rows(), data.I.cols());
 

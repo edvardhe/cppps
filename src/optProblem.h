@@ -28,8 +28,6 @@ struct PrecomputedData {
 // Ceres cost functor for depth optimization
 struct DepthCostFunctor {
     DepthCostFunctor(
-                    int x, int y,
-                    int widht, int height,
                     double I_ji, double rho_j, double phi_i,
                     const Eigen::Matrix3d& J,
                     const double light_distance,
@@ -44,32 +42,8 @@ struct DepthCostFunctor {
         T* residual) const;
 
 private:
-    int x_, y_;
-    int width_, height_;
     double I_ji, rho_j, phi_i;
     const Eigen::Matrix3d& J;
-    double light_distance;
-    Eigen::Vector3d light_dir;
-    double anisotropy;
-    static int debug_count;
-};
-
-struct NormalCostFunctor {
-    NormalCostFunctor(int pixel_x, int pixel_y, int light_i,
-                    int width,
-                    double I_ji, double rho_j, double phi_i,
-                    const double light_distance,
-                    const Eigen::Vector3d& light_dir,
-                    const double anisotropy);
-
-    template <typename T>
-    bool operator()(const T* const n_j, T* residual) const;
-
-private:
-    double I_ji, rho_j, phi_i;
-    int width;
-    int pixel_x, pixel_y;
-    int light_i;
     double light_distance;
     Eigen::Vector3d light_dir;
     double anisotropy;

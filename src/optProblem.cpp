@@ -267,16 +267,12 @@ struct AlbIntensityResidual {
 
 // Implement constructor
 DepthCostFunctor::DepthCostFunctor(
-    int x, int y,
-    int width, int height,
     double I_ji, double rho_j, double phi_i,
     const Eigen::Matrix3d& J,
     const double light_distance,
     const Eigen::Vector3d& light_dir,
     const double anisotropy)
-: x_(x), y_(y),
-  width_(width), height_(height),
-  I_ji(I_ji), rho_j(rho_j), phi_i(phi_i), J(J),
+: I_ji(I_ji), rho_j(rho_j), phi_i(phi_i), J(J),
   light_distance(light_distance), light_dir(light_dir),
   anisotropy(anisotropy) {}
 
@@ -306,12 +302,12 @@ bool DepthCostFunctor::operator()(
 
         // Roughness penalty
         T curvature = dz_x*dz_x + dz_y*dz_y;
-        T roughness_penalty_factor = T(4e6) * curvature;
+        T roughness_penalty_factor = T(7e6) * curvature;
 
         // Depth prior
         T depth_prior = T(2.147);  // Encourage depths > 2.0 units
         T penalty = ceres::fmax(T(0.0), depth_prior - *z_j);
-        T depth_prior_penalty = T(10.0) * penalty;  // Add as a second residual
+        T depth_prior_penalty = T(5000.0) * penalty;  // Add as a second residual
 
         // Compute lighting
         Eigen::Matrix<T, 3, 1> light_dir_t = light_dir.cast<T>();
@@ -323,36 +319,13 @@ bool DepthCostFunctor::operator()(
         Eigen::Matrix<T, 1, 3> JsT = (J * s).transpose();
         T incoming_light = JsT * grad_z_neg1;
         T light_estimate = ceres::fmax(s.dot(n),T(0.0));
-        T albedo_adjusted_estimate = /*T(rho_j) * T(phi_i) **/ light_estimate;
+        T albedo_adjusted_estimate = T(rho_j) * T(phi_i) * light_estimate;
 
         // Compute residual
-        residual[0] = abs(albedo_adjusted_estimate - T(I_ji)) + roughness_penalty_factor + depth_prior_penalty;
+        residual[0] = abs(albedo_adjusted_estimate - T(I_ji));
+        residual[1] = roughness_penalty_factor;
+        residual[2] = depth_prior_penalty;
         return true;
-}
-
-NormalCostFunctor::NormalCostFunctor(
-    int pixel_x, int pixel_y, int light_i,
-    int width,
-    double I_ji,
-    double rho_j,
-    double phi_i,
-    const double light_distance,
-    const Eigen::Vector3d &light_dir,
-    const double anisotropy)
-: I_ji(I_ji), rho_j(rho_j), phi_i(phi_i), width(width),
-pixel_x(pixel_x), pixel_y(pixel_y), light_i(light_i),
-light_distance(light_distance), light_dir(light_dir),
-anisotropy(anisotropy)  {}
-
-template <typename T>
-bool NormalCostFunctor::operator()(const T* const n_j,
-                                   T* residual) const {
-    Eigen::Matrix<T, 3, 1> light_dir_t = light_dir.cast<T>();
-    light_dir_t[2] *= T(-1.0); // Invert z-axis for depth
-    Eigen::Map<const Eigen::Matrix<T, 3, 1>> normal(n_j);
-    T psi = ceres::fmax(light_dir_t.dot(normal.normalized()), T(1e-3));
-    residual[0] = T(rho_j) * T(phi_i) * psi - T(I_ji);
-    return true;
 }
 
 // Main function for depth optimization step
@@ -403,9 +376,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
             if (data.weights(j, i) < 1e-3) continue;
             int idx = j * data.I.cols() + i;
             ceres::CostFunction* cost_function =
-                new ceres::AutoDiffCostFunction<DepthCostFunctor, 1, 1, 1, 1>(
+                new ceres::AutoDiffCostFunction<DepthCostFunctor, 3, 1, 1, 1>(
                     new DepthCostFunctor(
-                        x, y, image_width, image_height,
                         data.I(j, i), data.rho(j), data.phi(i),
                         data.J_all_pixels[j],
                         data.light_distances[idx],
@@ -449,7 +421,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     // Configure solver
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::CGNR;
-    options.preconditioner_type = ceres::JACOBI;
+    options.preconditioner_type = ceres::IDENTITY;
     options.sparse_linear_algebra_library_type = ceres::CUDA_SPARSE;
     options.minimizer_progress_to_stdout = true;
     options.max_num_iterations = 100;
@@ -480,6 +452,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     options.num_threads = 16;
     // Create and add the callback for saving depth maps
     options.update_state_every_iteration = true;
+    options.logging_type = ceres::PER_MINIMIZER_ITERATION;
     auto* callback = new DepthMapCallback(
         data.width, data.height, z_p, z.size()
     );
