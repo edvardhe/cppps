@@ -6,6 +6,15 @@
 #include <string>
 #include "optProblem.h"
 
+struct ROI {
+    int x;
+    int y;
+    int start_x;
+    int start_y;
+    int width;
+    int height;
+};
+
 // Function declarations
 Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
                                               std::vector<std::string>& image_names,

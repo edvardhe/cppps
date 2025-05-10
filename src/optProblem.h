@@ -13,16 +13,11 @@ struct PrecomputedData {
     int height;                         // Image height
     Eigen::Matrix3d K;                  // Camera intrinsics
     Eigen::MatrixXd I;                  // Grayscale images (pixels × lights)
-    Eigen::MatrixXd weights;            // Robust weights from IRLS (pixels × lights)
     Eigen::VectorXd rho;                // Albedo (per-pixel)
-    Eigen::VectorXd phi;                // Light intensities (per-light)
-    std::vector<double> mu_i;           // LED anisotropy parameters (per-light)
-    std::vector<Eigen::Vector3d> n_s_i; // LED principal directions (per-light)
     std::vector<Eigen::Vector3d> light_positions; // Known 3D positions of lights
     std::vector<Eigen::Matrix3d> J_all_pixels;    // Jacobians for all pixels
     std::vector<Eigen::Vector3d> light_dirs; // [pixel][light]
     std::vector<double> light_distances;           // [pixel][light]
-    std::vector<double> anisotropy;          // [pixel][light]
 };
 
 // Ceres cost functor for depth optimization

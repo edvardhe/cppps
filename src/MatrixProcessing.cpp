@@ -5,9 +5,12 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <opencv2/core/eigen.hpp>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
+
+
 
 // Implementation of loadImagesToObservationMatrix
 Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
@@ -25,7 +28,12 @@ Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
         auto ext = entry.path().extension().string();
         if (ext == ".PNG" || ext == ".JPG") {
             image_names.push_back(entry.path().filename().string());
-            cv::Mat full_image = cv::imread(entry.path().string(), cv::IMREAD_GRAYSCALE);
+            cv::Mat color_image = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
+            cv::Mat lab_image;
+            cv::cvtColor(color_image, lab_image, cv::COLOR_BGR2Lab);
+            std::vector<cv::Mat> lab_channels;
+            cv::split(lab_image, lab_channels);
+            cv::Mat full_image = lab_channels[0];
 
             if (h == 0 && w == 0) {
                 // Ensure ROI is within image bounds
@@ -45,14 +53,11 @@ Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
 
             // Extract ROI
             cv::Mat gray = full_image(cv::Rect(start_x, start_y, roi_width, roi_height));
-            
-            gray.convertTo(gray, CV_64F, 1.0 / 255.0);
-            Eigen::VectorXd vec(gray.rows * gray.cols);
-            for (int r = 0; r < gray.rows; ++r) {
-                for (int c = 0; c < gray.cols; ++c) {
-                    vec(r * gray.cols + c) = gray.at<double>(r, c);
-                }
-            }
+
+            Eigen::MatrixXd eigen_matrix;
+            cv::cv2eigen(gray, eigen_matrix);
+
+            Eigen::VectorXd vec = Eigen::Map<Eigen::VectorXd>(eigen_matrix.data(), eigen_matrix.size());
 
             eigen_images.col(index++) = vec;
         }
@@ -156,11 +161,12 @@ void precomputeJacobian(PrecomputedData& data) {
 
     for (int y = start_y; y < end_y; ++y) {
         for (int x = start_x; x < end_x; ++x) {
+            int j = (y - start_y) + (x - start_x) * data.height;
             Eigen::Matrix3d J;
             J << fx,  s, -(x - x0),
                 0, fy, -(y - y0),
                 0,  0,  1;
-            data.J_all_pixels[(y-start_y) * data.width + (x-start_x)] = J;
+            data.J_all_pixels[j] = J;
         }
     }
 
@@ -204,11 +210,10 @@ void precomputeLightVectors(PrecomputedData& data, double z_init) {
 
     data.light_dirs.resize(num_pixels * num_lights);
     data.light_distances.resize(num_pixels * num_lights);
-    data.anisotropy.resize(num_pixels * num_lights);
 
     for (int j = 0; j < num_pixels; ++j) {
-        int x_j = j % data.width;
-        int y_j = j / data.width;
+        int x_j = j / data.height;
+        int y_j = j % data.height;
         // Back-project pixel j using initial depth (z_init[j])
         Eigen::Vector3d ray_dir = data.K.inverse() * Eigen::Vector3d(x_j, y_j, 1.0);
         Eigen::Vector3d x_j_3D = z_init * ray_dir;
@@ -218,11 +223,6 @@ void precomputeLightVectors(PrecomputedData& data, double z_init) {
             Eigen::Vector3d light_dir = data.light_positions[i] - x_j_3D;
             data.light_distances[idx] = light_dir.norm();
             data.light_dirs[idx] = light_dir.normalized();
-
-            double anisotropy = pow(light_dir.dot(data.n_s_i[i]), data.mu_i[i]);
-
-            data.anisotropy[idx] = anisotropy;
-
         }
     }
 }

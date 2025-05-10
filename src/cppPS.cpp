@@ -3,10 +3,12 @@
 #include <filesystem>
 #include <eigen3/Eigen/Dense>
 #include <opencv2/opencv.hpp>
+
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/core/utility.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include "depthMapHandler.h"
 #include "MatrixProcessing.h"
 #include "optProblem.h"
 
@@ -14,10 +16,119 @@ namespace fs = std::filesystem;
 
 using json = nlohmann::json;
 
+
+std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int roi_height) {
+    std::vector<ROI> rois;
+
+    // Define overlap size
+    const int overlap = 10;
+
+    // Calculate effective step size (accounting for overlap)
+    int step_width = roi_width - overlap;
+    int step_height = roi_height - overlap;
+
+    // Calculate number of ROIs in each dimension
+    int num_rois_x = std::ceil(static_cast<float>(image_width - overlap) / step_width);
+    int num_rois_y = std::ceil(static_cast<float>(image_height - overlap) / step_height);
+
+    // Generate overlapping ROIs
+    for (int y = 0; y < num_rois_y; ++y) {
+        for (int x = 0; x < num_rois_x; ++x) {
+            ROI roi;
+
+            // Store grid position
+            roi.x = x;
+            roi.y = y;
+
+            // Calculate starting position
+            roi.start_x = x * step_width;
+            roi.start_y = y * step_height;
+
+            // Handle edge case: ensure we don't exceed image dimensions
+            if (roi.start_x + roi_width > image_width) {
+                roi.start_x = image_width - roi_width;
+            }
+
+            if (roi.start_y + roi_height > image_height) {
+                roi.start_y = image_height - roi_height;
+            }
+
+            // Set ROI dimensions
+            roi.width = roi_width;
+            roi.height = roi_height;
+
+            rois.push_back(roi);
+        }
+    }
+
+    return rois;
+}
+
+Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, int roi_width, int roi_height) {
+    // Load images with ROI
+    std::string path = "/home/edvard/dev/projects/cppPS/color";
+    std::vector<std::string> image_names;
+    Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
+                                                      start_x, start_y,
+                                                      roi_width, roi_height);
+
+    // Load images
+    //Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names, image_width, image_height);
+    int n_pixels = images.rows();
+    int n_images = images.cols();
+
+    std::vector<Eigen::Vector3d> light_positions = loadJsonToPositionMatrix("/home/edvard/dev/projects/cppPS/light_positions.json", image_names);
+
+    // Print stats
+    std::cout << "Loaded " << n_images << " images with " << n_pixels
+                << " pixels each" << std::endl;
+
+    // Each column is one image, each row is one pixels intensity across images
+
+    // 1. Initialize data structures
+    PrecomputedData data;
+
+    // 2. Populate precomputed data
+    data.start_x = start_x;   // X starting position
+    data.start_y = start_y;   // Y starting position
+    data.width = roi_width;   // Image width
+    data.height = roi_height; // Image height
+    data.K = K_pixel;         // Camera intrinsics
+    data.I = images;          // Input images
+    data.rho = false ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
+    data.light_positions = light_positions; // Your calibration data
+
+    // 3. Compute Jacobians for all pixels
+    precomputeJacobian(data);
+
+    std::vector<Eigen::Vector3d> precomputed_light_dirs; // [pixel][light]
+    std::vector<double> precomputed_distances;           // [pixel][light]
+
+    double initial_depth = 2.147;
+    precomputeLightVectors(data, initial_depth);
+
+
+    // 4. Initialize depth
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    Eigen::VectorXd z(n_pixels);
+    z.setConstant(initial_depth);  // Meter initialization
+
+    // z-step: Update depth map
+    std::cout << "I rows: " << data.I.rows() << ", cols: " << data.I.cols() << std::endl;
+    optimizeDepthMap(z, z.data(), data);
+
+    Eigen::MatrixXd depth_map(Eigen::Map<Eigen::MatrixXd>(z.data(), data.height, data.width));
+
+    return depth_map;
+}
+
 int main(int argc, char** argv) {
 
     Eigen::initParallel();
-    Eigen::setNbThreads(16);
+    Eigen::setNbThreads(4);
+
+    int image_width = 4460;
+    int image_height = 8736;
 
     float f = 4.91 / 100.0;  // m
 
@@ -35,113 +146,43 @@ int main(int argc, char** argv) {
          0.0, f, sensor_height / 2.0,
          0.0, 0.0, 1.0;
 
-    K_pixel << f * px_per_m_x, 0.0,             sensor_width_pixels / 2.0,
-               0.0,             f * px_per_m_y, sensor_height_pixels / 2.0,
+    K_pixel << f * px_per_m_x, 0.0,             image_width / 2.0,
+               0.0,             f * px_per_m_y, image_height / 2.0,
                0.0,             0.0,            1.0;
 
-    //if (argc != 2) {
-    //    std::cerr << "Usage: " << argv[0] << " <image_directory>" << std::endl;
-    //    return 1;
-    //}
-
-    // 1. Load images from directory
-    std::string path = "/home/edvard/dev/projects/cppPS/ratioImages";
-    std::vector<std::string> image_names;
 
     // In main(), replace the image loading line with:
-    int start_x = 5687;  // Your desired X starting position
-    int start_y = 3553;  // Your desired Y starting position
-    int roi_width = 223;  // Your desired width
-    int roi_height = 180; // Your desired height
+    int start_x = 3521;  // Your desired X starting position
+    int start_y = 5509;  // Your desired Y starting position
+    int roi_width = 300;  // Your desired width
+    int roi_height = 300; // Your desired height
 
-    // Load images with ROI
-    Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
-                                                      start_x, start_y, 
-                                                      roi_width, roi_height);
+    std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
 
-    // Load images
-    //Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names, image_width, image_height);
-    int n_pixels = images.rows();
-    int n_images = images.cols();
+    //Eigen::MatrixXd z = runWithRoi(K_pixel, start_x, start_y, roi_width, roi_height);
+    //return 0;
 
-    std::vector<Eigen::Vector3d> light_positions = loadJsonToPositionMatrix("/home/edvard/dev/projects/cppPS/light_positions.json", image_names);
-
-    // Print stats
-    std::cout << "Loaded " << n_images << " images with " << n_pixels 
-                << " pixels each" << std::endl;
-
-    // Now 'I' can be used in Algorithm 2
-    // Each column is one image, each row is one pixel's intensity across images
-
-    // 1. Initialize data structures
-    PrecomputedData data;
-
-    // 2. Populate precomputed data
-    data.start_x = start_x; // X starting position
-    data.start_y = start_y; // Y starting position
-    data.width = roi_width; // Image width
-    data.height = roi_height; // Image height
-    data.K = K_pixel; // Camera intrinsics
-    data.I = images; // Input images
-    data.rho = false ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
-    data.phi = false ? Eigen::VectorXd(n_images).setConstant(1.0) : images.colwise().mean(); // Mean per light
-    data.light_positions = light_positions; // Your calibration data
-    data.weights = Eigen::MatrixXd::Ones(data.I.rows(), data.I.cols());
-
-    // Initialize LED parameters for each light
-    data.mu_i.resize(data.I.cols(), 1.0);  // Default anisotropy parameter
-    data.n_s_i.resize(data.I.cols(), Eigen::Vector3d(0, 0, 1));  // Default LED direction
-
-    // 3. Compute Jacobians for all pixels
-    precomputeJacobian(data);
-
-    std::vector<Eigen::Vector3d> precomputed_light_dirs; // [pixel][light]
-    std::vector<double> precomputed_distances;           // [pixel][light]
-
-    double initial_depth = 2.147;
-    precomputeLightVectors(data, initial_depth);
-    
-
-    // 4. Initialize depth (log-depth)
-    // Initialize depth as log-depth (z = log(̃z))
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    Eigen::VectorXd z(n_pixels);
-    //z.setConstant(std::log(initial_depth)); // Log-depth initialization
-    z.setConstant(initial_depth);             // Meter initialization
-    //Add small noise to log-depth
-    //z = z.unaryExpr([](double x) { return x + 0.0001 * (rand() / double(RAND_MAX) - 0.0001); });
-
-    // z-step: Update depth map
-    std::cout << "I rows: " << data.I.rows() << ", cols: " << data.I.cols() << std::endl;
-    optimizeDepthMap(z, z.data(), data);
-    //optim
-    //runFullOptimization(data);
-    // Optional: Check convergence
-    // if (checkConvergence(z)) break;
-    Eigen::VectorXd depth = z.array().exp(); // Convert to actual depth
-
-        // After solving, normalize and save depth map
-        double z_min = depth.minCoeff();
-        double z_max = depth.maxCoeff();
-        
-        std::cout << "Depth range: " << z_min << " to " << z_max << std::endl;
-        
-        // Create OpenCV Mat for visualization
-        cv::Mat depth_map(roi_height, roi_width, CV_8UC1);
-        
-        // Normalize to [0,255] for visualization
-        for (int j = 0; j < z.size(); ++j) {
-            int x = j % roi_width;
-            int y = j / roi_width;
-            double normalized_depth = (depth(j) - z_min) / (z_max - z_min);
-            depth_map.at<uchar>(y, x) = static_cast<uchar>(normalized_depth * 255);
+    for (const ROI& roi : regions_of_interest) {
+        std::string patch_dir = "/home/edvard/dev/projects/cppPS/depthPatches";
+        std::string patch_path = patch_dir + "/depth_" + std::to_string(roi.x) + "_" + std::to_string(roi.y) + ".dmap";
+        if (fs::exists(patch_path)) {
+            continue;
         }
-        // Save the depth map
-        cv::imwrite("../depth_map.png", depth_map);
+        std::cout << "ROI at grid position (" << roi.x << ", " << roi.y
+                  << ") starts at (" << roi.start_x << ", " << roi.start_y
+                  << ") with size " << roi.width << "x" << roi.height << std::endl;
 
-    //}
 
-    // Final depth map: z contains log-depth values
-    //Eigen::VectorXd depth = z.array().exp(); // Convert to actual depth
-    return 0;
+        Eigen::MatrixXd z = runWithRoi(K_pixel, roi.start_x, roi.start_y, roi.width, roi.height);
+        depth::saveDepthMap(z, "/home/edvard/dev/projects/cppPS/depthMapPatches",
+                            std::to_string(roi.x) + "_" + std::to_string(roi.y));
+        depth::saveDepthMapBinary(z.data(), roi, patch_dir);
+    }
+
+    // After generating and saving all the depth map patches, stitch them together
+    std::string patch_dir = "/home/edvard/dev/projects/cppPS/depthPatches";
+    Eigen::MatrixXd mega_depth_map = depth::stitchDepthMaps(patch_dir);
+    depth::saveDepthMap(mega_depth_map, "/home/edvard/dev/projects/cppPS/megaDepthMap", "mega");
+
 }
+

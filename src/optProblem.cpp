@@ -4,7 +4,6 @@
 #include <fstream>
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
-#include <ceres/manifold.h>
 #include <utility>
 #include <vector>
 #include <c++/12/bits/std_thread.h>
@@ -12,6 +11,7 @@
 #include <opencv2/core/utility.hpp>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/imgproc.hpp>
+#include "depthMapHandler.h"
 
 /**
  * Callback for saving depth map images during optimization
@@ -22,171 +22,35 @@ public:
         int width,
         int height,
         double* depth_data,
-        size_t depth_size,
-        std::string output_dir = "/home/edvard/dev/projects/cppPS/forReport/depthMapIterations"
+        size_t depth_size
     ) : width_(width),
         height_(height),
         depth_data_(depth_data),
         depth_size_(depth_size),
-        output_dir_(std::move(output_dir)),
-        iteration_count_(0) {
-
-        // Create output directory if it doesn't exist
-        if (!std::filesystem::exists(output_dir_)) {
-            std::filesystem::create_directories(output_dir_ + "/gray");
-            std::filesystem::create_directories(output_dir_ + "/cool");
-        }
-    }
+        iteration_count_(0) {}
 
     ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override {
         // Save the current depth map
-        saveDepthMap();
+        output_dir_ = "/home/edvard/dev/projects/cppPS/depthMapIterations";
 
-        saveDepthMapAsObj();
+        std::string output_name = "iter_" + std::to_string(iteration_count_);
+
+        Eigen::MatrixXd depth_map(Eigen::Map<Eigen::MatrixXd>(depth_data_, height_, width_));
+
+        //cv::Mat debug;
+        //cv::eigen2cv(depth_map.eval(), debug);
+        //cv::normalize(debug,debug,0,255,cv::NORM_MINMAX);
+
+
+        depth::saveDepthMap(depth_map.eval(), output_dir_, output_name);
+
         // Increment iteration counter
         iteration_count_++;
 
         // Continue optimization
         return ceres::SOLVER_CONTINUE;
     }
-
 private:
-    void saveDepthMap() {
-        // Find min/max depth for normalization
-        double min_depth = std::numeric_limits<double>::max();
-        double max_depth = std::numeric_limits<double>::lowest();
-
-        Eigen::Map<Eigen::VectorXd> depth_map_(depth_data_, depth_size_);
-        //auto depth_array = depth_map_.array().exp();
-        auto depth_array = depth_map_.array();
-
-        for (int y = 0; y < height_; y++) {
-            for (int x = 0; x < width_; x++) {
-                int idx = y * width_ + x;
-                min_depth = std::min(min_depth, depth_array(idx));
-                max_depth = std::max(max_depth, depth_array(idx));
-            }
-        }
-
-        // Create normalized depth map
-        cv::Mat depth_map(height_, width_, CV_32FC1, cv::Scalar(0)); // Initialize with 0
-
-        // Only process non-edge pixels
-        for (int y = 0; y < height_; y++) {
-            for (int x = 0; x < width_; x++) {
-                int idx = y * width_ + x;
-                auto normalized_depth = static_cast<float>(
-                    (depth_array(idx) - min_depth) / (max_depth - min_depth)
-                );
-                depth_map.at<float>(y, x) = normalized_depth;
-            }
-        }
-
-        // Create output image
-        cv::Mat output;
-        depth_map.convertTo(output, CV_8UC1, 255.0);
-
-        // Save the image
-        std::string filename = output_dir_ + "/gray/depth_map_iter_" +
-                              std::to_string(iteration_count_) + ".png";
-        cv::imwrite(filename, output);
-
-        // Apply colormap if requested
-        cv::applyColorMap(output, output, cv::COLORMAP_MAGMA);
-
-        filename = output_dir_ + "/cool/depth_map_iter_" +
-                   std::to_string(iteration_count_) + ".png";
-        cv::imwrite(filename, output);
-    }
-    /**
-     * Saves a depth map as a 3D mesh in Wavefront .obj format
-     *
-     * @param width Width of the depth map
-     * @param height Height of the depth map
-     * @param depth_data Pointer to depth map data (flattened 2D array)
-     * @param depth_size Size of the depth data array
-     * @param filename Path to the output .obj file
-     * @param scale_x X-axis scale factor (default: 1.0)
-     * @param scale_y Y-axis scale factor (default: 1.0)
-     * @param scale_z Z-axis scale factor (default: 1.0)
-     * @return True if successful, false otherwise
-     */
-    bool saveDepthMapAsObj()
-    {
-        int width = width_;
-        int height = height_;
-
-        const double* depth_data = depth_data_;
-
-        size_t depth_size = depth_size_;
-
-        double scale_x = 1.0;
-        double scale_y = 1.0;
-        double scale_z = -3000.0;
-
-        if (depth_size != width * height) {
-            std::cerr << "Error: depth_size doesn't match width*height" << std::endl;
-            return false;
-        }
-
-        std::string filename = output_dir_ + "/obj/depth_obj_iter_" + std::to_string(iteration_count_) + ".obj";
-
-        std::ofstream objFile(filename);
-        if (!objFile.is_open()) {
-            std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
-            return false;
-        }
-
-        // Write header
-        objFile << "# Depth map exported as OBJ\n";
-        objFile << "# Width: " << width << ", Height: " << height << "\n";
-
-        // Map depth data
-        Eigen::Map<const Eigen::VectorXd> depth_map(depth_data, depth_size);
-        auto depth_array = depth_map.array();
-
-        // Find min/max depth for normalization
-        double min_depth = depth_array.minCoeff();
-        double max_depth = depth_array.maxCoeff();
-        std::cout << "Depth range: " << min_depth << " to " << max_depth << std::endl;
-
-        // Write vertices
-        // The coordinate system is: X right, Y up, Z backward (toward viewer)
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int idx = y * width + x;
-                double depth = depth_array(idx);
-
-                // Normalize x and y to [-1, 1] range
-                double norm_x = (2.0 * x / (width - 1) - 1.0) * scale_x;
-                double norm_y = (1.0 - 2.0 * y / (height - 1)) * scale_y; // Flip Y to match 3D convention
-
-                objFile << "v " << norm_x << " " << norm_y << " "
-                       << depth * scale_z << "\n";
-            }
-        }
-
-        // Write faces (triangles)
-        // Use counter-clockwise winding order
-        for (int y = 0; y < height - 1; y++) {
-            for (int x = 0; x < width - 1; x++) {
-                // 0-based indices of the four corners of the current grid cell
-                int idx00 = y * width + x + 1;            // +1 because OBJ indices start at 1
-                int idx01 = (y + 1) * width + x + 1;
-                int idx10 = y * width + (x + 1) + 1;
-                int idx11 = (y + 1) * width + (x + 1) + 1;
-
-                // Write two triangles for this grid cell
-                objFile << "f " << idx00 << " " << idx10 << " " << idx11 << "\n";
-                objFile << "f " << idx00 << " " << idx11 << " " << idx01 << "\n";
-            }
-        }
-
-        objFile.close();
-        //std::cout << "Depth map saved as OBJ file: " << filename << std::endl;
-        return true;
-    }
-
     // Image dimensions
     int width_;
     int height_;
@@ -200,69 +64,6 @@ private:
 
     // Iteration counter
     int iteration_count_;
-};
-
-class Rank1Manifold : public ceres::Manifold {
-public:
-    Rank1Manifold(int num_pixels, int num_lights)
-    : num_pixels_(num_pixels), num_lights_(num_lights) {}
-
-    // Ambient dimension (size of parameter vector: ρ + ϕ)
-    int AmbientSize() const override {
-        return num_pixels_ + num_lights_;
-    }
-
-    // Tangent space dimension (accounts for scale ambiguity)
-    int TangentSize() const override {
-        return num_pixels_ + num_lights_ - 1;
-    }
-
-    // Move parameters along the tangent vector `delta`
-    bool Plus(const double* x, const double* delta, double* x_plus_delta) const override {
-        std::copy(x, x + AmbientSize(), x_plus_delta);
-        for (int i = 0; i < TangentSize(); ++i) {
-            x_plus_delta[i] += delta[i];
-        }
-        return true;
-    }
-
-    // Compute the tangent vector from `x` to `y`
-    bool Minus(const double* y, const double* x, double* delta) const override {
-        for (int i = 0; i < TangentSize(); ++i) {
-            delta[i] = y[i] - x[i];
-        }
-        return true;
-    }
-
-    // Jacobian of Plus (identity for simplicity)
-    bool PlusJacobian(const double* x, double* jacobian) const override {
-        Eigen::Map<Eigen::MatrixXd>(jacobian, AmbientSize(), TangentSize())
-            .setIdentity();
-        return true;
-    }
-
-    // Jacobian of Minus (identity for simplicity)
-    bool MinusJacobian(const double* x, double* jacobian) const override {
-        Eigen::Map<Eigen::MatrixXd>(jacobian, TangentSize(), AmbientSize())
-            .setIdentity();
-        return true;
-    }
-private:
-    int num_pixels_, num_lights_;
-};
-
-struct AlbIntensityResidual {
-    const double I_ji;   // Observed intensity
-    const double Psi_ji; // Precomputed geometric term (from depth z)
-    const double weight; // Robust weight (Cauchy, etc.)
-
-    template <typename T>
-    bool operator()(const T* const rho_j, const T* const phi_i, T* residual) const {
-        T theta_ji = (*rho_j) * (*phi_i); // θ[j,i] = ρ[j] * ϕ[i]
-        T predicted = theta_ji * T(Psi_ji);
-        residual[0] = T(weight) * (predicted - T(I_ji));
-        return true;
-    }
 };
 
 // Implement constructor
@@ -279,26 +80,28 @@ DepthCostFunctor::DepthCostFunctor(
 // 1. Photometric residual only
 struct PhotometricResidual {
     PhotometricResidual(
-    const double I_ji, const double rho_j, const double phi_i,
+    const double I_ji, const double rho_j,
     const Eigen::Matrix3d& J,
     const double light_distance,
     const Eigen::Vector3d& light_dir)
-: I_ji(I_ji), rho_j(rho_j), phi_i(phi_i), J(J),
+: I_ji(I_ji), rho_j(rho_j), J(J),
   light_distance(light_distance), light_dir(light_dir){}
 
     template <typename T>
     bool operator()(const T* const z_j,
                     const T* const z_right,
-                    const T* const z_left,
-                    const T* const z_top,
                     const T* const z_bottom,
                     T* residual) const {
         // --- Gradient Calculation with Boundary Handling ---
         T dz_x, dz_y;
 
-        //// center difference
-        dz_x = (*z_right - *z_left) / T(2.0);
-        dz_y = (*z_bottom - *z_top) / T(2.0);
+        // center difference
+        //dz_x = (*z_right - *z_left) / T(2.0);
+        //dz_y = (*z_bottom - *z_top) / T(2.0);
+
+        // forward difference
+        dz_x = (*z_j - *z_right);
+        dz_y = (*z_j - *z_bottom);
 
         Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
         Eigen::Matrix<T, 3, 1> n = J.transpose() * grad_z_neg1;
@@ -313,10 +116,10 @@ struct PhotometricResidual {
         Eigen::Matrix<T, 1, 3> JsT = (J * s).transpose();
         T incoming_light = JsT * grad_z_neg1;
         T light_estimate = ceres::fmax(incoming_light,T(0.0));
-        T albedo_adjusted_estimate = T(rho_j) * T(phi_i) * light_estimate;
+        T albedo_adjusted_estimate = light_estimate * (rho_j);
 
         // Compute residual
-        residual[0] = albedo_adjusted_estimate - T(I_ji);
+        residual[0] = (albedo_adjusted_estimate - T(I_ji)) / T(rho_j);
         return true;
     }
 private:
@@ -330,57 +133,30 @@ private:
 
 // 2. Smoothness residual only
 struct SmoothnessResidual {
-    SmoothnessResidual() {}
+    SmoothnessResidual(
+    const Eigen::Matrix3d& J
+    ) : J(J){}
 
     template <typename T>
-    bool operator()(const T* const z_j,
+    bool operator()(const T* const z_center,
                     const T* const z_right,
                     const T* const z_left,
                     const T* const z_top,
                     const T* const z_bottom,
-                    const T* const z_bottom_right,
-                    const T* const z_bottom_left,
-                    const T* const z_top_right,
-                    const T* const z_top_left,
                     T* residual) const {
         // First derivatives (gradient)
         T dz_x = (*z_right - *z_left) / T(2.0);
         T dz_y = (*z_bottom - *z_top) / T(2.0);
 
-        // Second derivatives for actual curvature
-        T d2z_dx2 = *z_right + *z_left - T(2.0) * (*z_j);
-        T d2z_dy2 = *z_bottom + *z_top - T(2.0) * (*z_j);
-        T d2z_dxdy = ((*z_bottom_right - *z_bottom_left) - (*z_top_right - *z_top_left)) / T(4.0);
-
-        // Option 2: Total Variation (TV) regularization (better edge preservation)
-        T gradient_magnitude = ceres::sqrt(dz_x * dz_x + dz_y * dz_y + T(1e-6));
-        T tv_penalty = gradient_magnitude;
-
-        // Option 4: Thin Plate Spline energy (often works well)
-        // T tps_penalty = d2z_dx2 * d2z_dx2 + T(2.0) * d2z_dxdy * d2z_dxdy + d2z_dy2 * d2z_dy2;
-
-
+        T laplacian = *z_right + *z_left + *z_top + *z_bottom - 4.0 * *z_center;
+        T curve_penalty = laplacian;
         // Roughness penalty
-        T weight = T(1800.0);
-        residual[0] = tv_penalty * weight;
+        T weight = T(5000);
+        residual[0] = curve_penalty * weight;
         return true;
     }
-};
-
-// 3. Curvature residual only
-struct depthResidual {
-    depthResidual(/* params */) { /* initialize */ }
-
-    template <typename T>
-    bool operator()(const T* const z_j,
-                    T* residual) const {
-        // Depth prior
-        T depth_prior = T(2.147);  // Encourage depths > 2.0 units
-        T penalty = ceres::fmax(T(0.0), depth_prior - *z_j);
-        T depth_prior_penalty = T(3000.0) * penalty;  // Add as a second residual
-        residual[0] = depth_prior_penalty; // Mean curvature
-        return true;
-    }
+private:
+    const Eigen::Matrix3d& J;
 };
 
 
@@ -390,16 +166,12 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     // Add debug prints at the start of the function
     std::cout << "Matrix sizes:" << std::endl;
     std::cout << "I: " << data.I.rows() << "x" << data.I.cols() << std::endl;
-    std::cout << "weights: " << data.weights.rows() << "x" << data.weights.cols() << std::endl;
-    std::cout << "n_s_i size: " << data.n_s_i.size() << std::endl;
-    std::cout << "mu_i size: " << data.mu_i.size() << std::endl;
     std::cout << "light_positions size: " << data.light_positions.size() << std::endl;
 
     // Print value ranges
     std::cout << "Value ranges:" << std::endl;
     std::cout << "I range: " << data.I.minCoeff() << " to " << data.I.maxCoeff() << std::endl;
     std::cout << "rho range: " << data.rho.minCoeff() << " to " << data.rho.maxCoeff() << std::endl;
-    std::cout << "phi range: " << data.phi.minCoeff() << " to " << data.phi.maxCoeff() << std::endl;
     
     // Print a few light positions
     std::cout << "First light position: " << data.light_positions[0].transpose() << std::endl;
@@ -411,95 +183,78 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     int image_width = data.width;
     int image_height = data.height;
 
-    constexpr double initial_depth = 2.147; // Your initial depth value
-    const double initial_log_depth = log(initial_depth);
-
     // Add residuals for all pixels and lights
     for (int j = 0; j < data.I.rows(); ++j) { // For each pixel
-        int x = j % image_width;
-        int y = j / image_width;
+        int x = j / image_height; // column major (И shapes)
+        int y = j % image_height;
 
         // Skip boundary pixels (no neighbors exist)
-        if (x == image_width - 1 || y == image_height - 1 || x == 0 || y == 0) {
+        if (x == image_width - 1 || y == image_height - 1) {
             continue;
         }
 
         // Neighbor indices (safe, since we skipped boundaries)
-        int j_right = j + 1;
-        int j_left = j - 1;
-        int j_bottom = j + image_width;
-        int j_top = j - image_width;
-        int j_bottom_right = j + image_width + 1;
-        int j_bottom_left = j + image_width - 1;
-        int j_top_right = j - image_width + 1;
-        int j_top_left = j - image_width - 1;
+        int j_right = j + image_height;
+        int j_left = j - image_height;
+        int j_bottom = j + 1;
+        int j_top = j - 1;
 
         for (int i = 0; i < data.I.cols(); ++i) { // For each light
-            if (data.weights(j, i) < 1e-3) continue;
             int idx = j * data.I.cols() + i;
 
             ceres::CostFunction* photometric_cost_function =
-                new ceres::AutoDiffCostFunction<PhotometricResidual, 1, 1, 1, 1, 1, 1>(
+                new ceres::AutoDiffCostFunction<PhotometricResidual, 1, 1, 1, 1>(
                     new PhotometricResidual(
-                        data.I(j, i), data.rho(j), data.phi(i),
+                        data.I(j, i), data.rho(j),
                         data.J_all_pixels[j],
                         data.light_distances[idx],
                         data.light_dirs[idx]
                     )
                 );
 
-            ceres::CostFunction* smooth_cost_function =
-                new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>(
-                    new SmoothnessResidual()
-                );
-
-            ceres::CostFunction* depth_cost_function =
-                new ceres::AutoDiffCostFunction<depthResidual, 1, 1>(
-                    new depthResidual()
-                );
-
             // Add residual block with all 5 parameters
             problem.AddResidualBlock(
                 photometric_cost_function   ,
-                new ceres::CauchyLoss(1),
+                new ceres::CauchyLoss(7),
                 &z(j),        // Current depth
                 &z(j_right),  // Right neighbor
-                &z(j_left),
-                &z(j_top),
                 &z(j_bottom)  // Bottom neighbor
             );
-
-            // Add residual block with all 5 parameters
-            problem.AddResidualBlock(
-                smooth_cost_function   ,
-                nullptr,
-                &z(j),        // Current depth
-                &z(j_right),  // Right neighbor
-                &z(j_left),
-                &z(j_top),
-                &z(j_bottom),  // Bottom neighbor
-                &z(j_bottom_right),  // Bottom-right neighbor
-                &z(j_bottom_left),  // Bottom-left neighbor
-                &z(j_top_right),  // Top-right neighbor
-                &z(j_top_left)  // Top-left neighbor
-            );
-
-            // Add residual block with all 5 parameters
-            problem.AddResidualBlock(
-                depth_cost_function   ,
-                nullptr,
-                &z(j)        // Current depth
-            );
         }
+
+        if (x == 0 || y == 0) {
+            continue;
+        }
+
+        ceres::CostFunction* smooth_cost_function =
+            new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
+                new SmoothnessResidual(data.J_all_pixels[j])
+            );
+
+        // Add residual block with all 5 parameters
+        problem.AddResidualBlock(
+            smooth_cost_function   ,
+            nullptr,
+            &z(j),
+            &z(j_right),  // Right neighbor
+            &z(j_left),
+            &z(j_top),
+            &z(j_bottom)
+        );
     }
 
     for (int j = 0; j < z.size(); ++j) {
 
-        int x = j % image_width;
-        int y = j / image_width;
+        int x = j / image_height;
+        int y = j % image_height;
+
+        if (x == image_width - 1 && y == image_height - 1) continue;
+
+        problem.SetParameterLowerBound(&z(j), 0, 2.147);
+        problem.SetParameterUpperBound(&z(j), 0, 2.16);
 
         if (x == 0 || x == image_width - 1 || y == 0 || y == image_height - 1) {
-            //if (x == image_width - 1 && y == image_height - 1) continue;
+
             //if (x == 0 && y == 0) continue;
             //if (x == 0 && y == image_height - 1) continue;
             //if (x == image_width - 1 && y == 0) continue;
@@ -512,43 +267,49 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
 
     // Configure solver
     ceres::Solver::Options options;
-    options.linear_solver_type = ceres::CGNR;
+    options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
     options.preconditioner_type = ceres::JACOBI;
-    options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
+    options.sparse_linear_algebra_library_type = ceres::CUDA_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 100;
-    options.function_tolerance = 1e-6;
-    options.gradient_tolerance = 1e-8;
-    options.parameter_tolerance = 1e-8;
+    options.max_num_iterations = 5;
+    options.max_linear_solver_iterations = 1;
+    options.function_tolerance = 1e-9;
+    options.gradient_tolerance = 1e-7;
+    options.parameter_tolerance = 4e-9;
     options.jacobi_scaling = true;
-    options.use_inner_iterations = true;
+    options.use_inner_iterations = false;
+    options.minimizer_type = ceres::TRUST_REGION;
+    options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+
+    // Take smaller initial steps
+    options.initial_trust_region_radius = 1.0;  // default 10
+    options.max_trust_region_radius = 20.0;    // Limit how large the trust region can grow
 
 
-    options.minimizer_type = ceres::LINE_SEARCH;
+    // // Line search specific options
+    // options.minimizer_type = ceres::LINE_SEARCH;
+    // options.line_search_direction_type = ceres::NONLINEAR_CONJUGATE_GRADIENT;  // or ceres::STEEPEST_DESCENT, ceres::NONLINEAR_CONJUGATE_GRADIENT
+    // options.line_search_type = ceres::WOLFE;           // or ceres::ARMIJO
+    // options.line_search_interpolation_type = ceres::CUBIC;
+    //
+    // // Line search parameters
+    // options.max_lbfgs_rank = 20;  // For LBFGS direction
+    // options.use_approximate_eigenvalue_bfgs_scaling = true;
+    // options.line_search_sufficient_function_decrease = 1e-4;
+    // options.line_search_sufficient_curvature_decrease = 0.9;
+    // options.max_line_search_step_contraction = 1e-3;
+    // options.min_line_search_step_contraction = 0.6;
+    // options.max_num_line_search_step_size_iterations = 20;
+    // options.max_num_line_search_direction_restarts = 5;
+    // options.line_search_sufficient_curvature_decrease = 0.3;
 
-    // Line search specific options
-    options.line_search_direction_type = ceres::NONLINEAR_CONJUGATE_GRADIENT;  // or ceres::STEEPEST_DESCENT, ceres::NONLINEAR_CONJUGATE_GRADIENT
-    options.line_search_type = ceres::WOLFE;           // or ceres::ARMIJO
-    options.line_search_interpolation_type = ceres::CUBIC;
-
-    // Line search parameters
-    options.max_lbfgs_rank = 20;  // For LBFGS direction
-    options.use_approximate_eigenvalue_bfgs_scaling = true;
-    options.line_search_sufficient_function_decrease = 1e-4;
-    options.line_search_sufficient_curvature_decrease = 0.9;
-    options.max_line_search_step_contraction = 1e-3;
-    options.min_line_search_step_contraction = 0.6;
-    options.max_num_line_search_step_size_iterations = 20;
-    options.max_num_line_search_direction_restarts = 5;
-    options.line_search_sufficient_curvature_decrease = 0.9;
-
-    // Multi-threading for speed
     options.num_threads = 16;
+
     // Create and add the callback for saving depth maps
     options.update_state_every_iteration = true;
     options.logging_type = ceres::PER_MINIMIZER_ITERATION;
     auto* callback = new DepthMapCallback(
-        data.width, data.height, z_p, z.size()
+        data.width, data.height, z.data(), z.size()
     );
     options.callbacks.push_back(callback);
 
@@ -569,77 +330,4 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     }
 }
 
-Eigen::MatrixXd computePsi(Eigen::VectorXd::Nested matrix, const PrecomputedData & data){
-    return matrix;
-}
-
-void optimizeAlbedoAndIntensities(
-    Eigen::VectorXd& rho,        // Albedo (n pixels)
-    Eigen::VectorXd& phi,        // Light intensities (m lights)
-    const Eigen::VectorXd& z,    // Current depth estimate
-    const PrecomputedData& data  // Contains I, J, light positions, etc.
-) {
-    ceres::Problem problem;
-    int num_pixels = data.width * data.height;
-    int num_lights = data.light_positions.size();
-
-    // Set up manifold for rank-1 constraint
-    problem.AddParameterBlock(rho.data(), num_pixels);
-    problem.AddParameterBlock(phi.data(), num_lights);
-
-    Rank1Manifold* manifold = new Rank1Manifold(num_pixels, num_lights);
-    problem.SetManifold(rho.data(), manifold);
-    problem.SetManifold(phi.data(), manifold);
-
-    // Precompute Ψ_ji (geometric terms) using current depth z
-    Eigen::MatrixXd Psi = computePsi(z, data); // Implement this function
-
-    // Add residuals for all pixels/lights
-    for (int j = 0; j < num_pixels; ++j) {
-        for (int i = 0; i < num_lights; ++i) {
-            if (data.weights(j, i) < 1e-3) continue; // Skip invalid/shadowed
-
-            ceres::CostFunction* cost_function =
-                new ceres::AutoDiffCostFunction<AlbIntensityResidual, 1, 1, 1>(
-                    new AlbIntensityResidual{
-                        data.I(j, i),
-                        Psi(j, i),
-                        data.weights(j, i)
-                    }
-                );
-
-            problem.AddResidualBlock(
-                cost_function,
-                new ceres::CauchyLoss(1), // Robust loss
-                &rho(j),  // Albedo parameter for pixel j
-                &phi(i)   // Intensity parameter for light i
-            );
-        }
-    }
-
-    // Solve
-    ceres::Solver::Options options;
-    options.minimizer_progress_to_stdout = true;
-    ceres::Solver::Summary summary;
-    ceres::Solve(options, &problem, &summary);
-}
-
-void runFullOptimization(PrecomputedData& data) {
-    // Initialize depth, albedo, and intensities
-    Eigen::VectorXd z = Eigen::VectorXd::Constant(data.width * data.height, 2.147);
-    data.rho = Eigen::VectorXd::Ones(data.width * data.height); // Initial albedo = 1
-    data.phi = Eigen::VectorXd::Ones(data.I.cols());            // Initial intensities = 1
-
-    // Alternating optimization loop
-    for (int iter = 0; iter < 10; ++iter) {
-        // Step 1: Optimize depth using current rho/phi
-        optimizeDepthMap(z, z.data(), data);
-
-        // Step 2: Optimize albedo/intensities using current depth
-        optimizeAlbedoAndIntensities(data.rho, data.phi, z, data);
-
-        // Check convergence (e.g., cost change < threshold)
-        //if (converged) break;
-    }
-}
 
