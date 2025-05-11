@@ -152,15 +152,15 @@ int main(int argc, char** argv) {
 
 
     // In main(), replace the image loading line with:
-    int start_x = 3521;  // Your desired X starting position
-    int start_y = 5509;  // Your desired Y starting position
-    int roi_width = 300;  // Your desired width
-    int roi_height = 300; // Your desired height
+    int start_x = 2068;  // Your desired X starting position
+    int start_y = 3502;  // Your desired Y starting position
+    int roi_width = 649;  // Your desired width
+    int roi_height = 397; // Your desired height
 
     std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
 
-    //Eigen::MatrixXd z = runWithRoi(K_pixel, start_x, start_y, roi_width, roi_height);
-    //return 0;
+    Eigen::MatrixXd z = runWithRoi(K_pixel, start_x, start_y, roi_width, roi_height);
+    return 0;
 
     for (const ROI& roi : regions_of_interest) {
         std::string patch_dir = "/home/edvard/dev/projects/cppPS/depthPatches";

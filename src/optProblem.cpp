@@ -133,9 +133,7 @@ private:
 
 // 2. Smoothness residual only
 struct SmoothnessResidual {
-    SmoothnessResidual(
-    const Eigen::Matrix3d& J
-    ) : J(J){}
+    SmoothnessResidual() {}
 
     template <typename T>
     bool operator()(const T* const z_center,
@@ -151,12 +149,25 @@ struct SmoothnessResidual {
         T laplacian = *z_right + *z_left + *z_top + *z_bottom - 4.0 * *z_center;
         T curve_penalty = laplacian;
         // Roughness penalty
-        T weight = T(5000);
+        T weight = T(0);
         residual[0] = curve_penalty * weight;
         return true;
     }
-private:
-    const Eigen::Matrix3d& J;
+};
+
+struct depthResidual {
+    depthResidual() {}
+
+    template <typename T>
+    bool operator()(const T* const z_j,
+                    T* residual) const {
+        // Depth prior
+        T depth_prior = T(2.147);
+        T penalty = ceres::fmax(T(0.0), depth_prior - *z_j);
+        T depth_prior_penalty = T(100.0) * penalty;
+        residual[0] = depth_prior_penalty;
+        return true;
+    }
 };
 
 
@@ -183,10 +194,28 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     int image_width = data.width;
     int image_height = data.height;
 
+    // ceres::CostFunction* depth_cost_function =
+    // new ceres::AutoDiffCostFunction<depthResidual, 1, 1>(
+    //     new depthResidual()
+    // );
+    //
+    // ceres::CostFunction* smooth_cost_function =
+    // new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
+    //     new SmoothnessResidual()
+    // );
+
+
     // Add residuals for all pixels and lights
     for (int j = 0; j < data.I.rows(); ++j) { // For each pixel
         int x = j / image_height; // column major (И shapes)
         int y = j % image_height;
+
+        //problem.AddResidualBlock(
+        //    depth_cost_function   ,
+        //    nullptr,
+        //    &z(j)        // Current depth
+        //);
+
 
         // Skip boundary pixels (no neighbors exist)
         if (x == image_width - 1 || y == image_height - 1) {
@@ -215,7 +244,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
             // Add residual block with all 5 parameters
             problem.AddResidualBlock(
                 photometric_cost_function   ,
-                new ceres::CauchyLoss(7),
+                new ceres::CauchyLoss(30),
                 &z(j),        // Current depth
                 &z(j_right),  // Right neighbor
                 &z(j_bottom)  // Bottom neighbor
@@ -226,21 +255,15 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
             continue;
         }
 
-        ceres::CostFunction* smooth_cost_function =
-            new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
-                new SmoothnessResidual(data.J_all_pixels[j])
-            );
-
-        // Add residual block with all 5 parameters
-        problem.AddResidualBlock(
-            smooth_cost_function   ,
-            nullptr,
-            &z(j),
-            &z(j_right),  // Right neighbor
-            &z(j_left),
-            &z(j_top),
-            &z(j_bottom)
-        );
+        //problem.AddResidualBlock(
+        //    smooth_cost_function   ,
+        //    nullptr,
+        //    &z(j),
+        //    &z(j_right),  // Right neighbor
+        //    &z(j_left),
+        //    &z(j_top),
+        //    &z(j_bottom)
+        //);
     }
 
     for (int j = 0; j < z.size(); ++j) {
@@ -250,8 +273,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
 
         if (x == image_width - 1 && y == image_height - 1) continue;
 
-        problem.SetParameterLowerBound(&z(j), 0, 2.147);
-        problem.SetParameterUpperBound(&z(j), 0, 2.16);
+        //problem.SetParameterLowerBound(&z(j), 0, 2.147);
+        //problem.SetParameterUpperBound(&z(j), 0, 2.16);
 
         if (x == 0 || x == image_width - 1 || y == 0 || y == image_height - 1) {
 

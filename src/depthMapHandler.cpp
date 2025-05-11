@@ -75,23 +75,31 @@ namespace depth {
         cv::minMaxLoc(cv_depth, &min_depth, &max_depth);
         std::cout << "Depth range: " << min_depth << " to " << max_depth << std::endl;
 
+        // debug saving
+        //cv::Mat cv_depth_norm;
+        //cv::normalize(cv_depth, cv_depth_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        //cv::imwrite("/home/edvard/dev/projects/cppPS/debugImages/megaObj/debug.png", cv_depth_norm);
+
         // Write vertices
         // The coordinate system is: X right, Y up, Z backward (toward viewer)
+        double gamma = 1; // Gamma correction for gamma-corrected depth
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                int idx = y * width + x;
-                double depth = cv_depth.at<double>(x, y);
+                double depth = cv_depth.at<double>(y, x);
 
                 // Normalize x and y to [-1, 1] range
                 double norm_x = (2.0 * x / (width - 1) - 1.0) * scale_x;
                 double norm_y = (1.0 - 2.0 * y / (height - 1)) * scale_y; // Flip Y to match 3D convention
                 double norm_z = 0;
+                double gamma_corrected = 0;
                 if ((max_depth - min_depth)>0) {
                     norm_z = ((depth - min_depth) / (max_depth - min_depth)) * scale_z;
+
+                    gamma_corrected = std::pow(norm_z, gamma);
                 }
 
                 objFile << "v " << norm_x << " " << norm_y << " "
-                       << norm_z << "\n";
+                       << gamma_corrected << "\n";
             }
         }
 
