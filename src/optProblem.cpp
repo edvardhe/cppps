@@ -116,10 +116,10 @@ struct PhotometricResidual {
         Eigen::Matrix<T, 1, 3> JsT = (J * s).transpose();
         T incoming_light = JsT * grad_z_neg1;
         T light_estimate = ceres::fmax(incoming_light,T(0.0));
-        T albedo_adjusted_estimate = light_estimate * (rho_j);
+        T albedo_adjusted_estimate = light_estimate * T(rho_j);
 
         // Compute residual
-        residual[0] = (albedo_adjusted_estimate - T(I_ji)) / T(rho_j);
+        residual[0] = (T(I_ji) - light_estimate);
         return true;
     }
 private:
@@ -149,7 +149,7 @@ struct SmoothnessResidual {
         T laplacian = *z_right + *z_left + *z_top + *z_bottom - 4.0 * *z_center;
         T curve_penalty = laplacian;
         // Roughness penalty
-        T weight = T(0);
+        T weight = T(15000);
         residual[0] = curve_penalty * weight;
         return true;
     }
@@ -198,13 +198,14 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     // new ceres::AutoDiffCostFunction<depthResidual, 1, 1>(
     //     new depthResidual()
     // );
-    //
-    // ceres::CostFunction* smooth_cost_function =
-    // new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
-    //     new SmoothnessResidual()
-    // );
+
+    //ceres::CostFunction* smooth_cost_function =
+    //new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
+    //    new SmoothnessResidual()
+    //);
 
 
+    auto loss = new ceres::CauchyLoss(2.0);
     // Add residuals for all pixels and lights
     for (int j = 0; j < data.I.rows(); ++j) { // For each pixel
         int x = j / image_height; // column major (И shapes)
@@ -244,7 +245,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
             // Add residual block with all 5 parameters
             problem.AddResidualBlock(
                 photometric_cost_function   ,
-                new ceres::CauchyLoss(30),
+                loss,
                 &z(j),        // Current depth
                 &z(j_right),  // Right neighbor
                 &z(j_bottom)  // Bottom neighbor
@@ -273,8 +274,9 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
 
         if (x == image_width - 1 && y == image_height - 1) continue;
 
-        //problem.SetParameterLowerBound(&z(j), 0, 2.147);
-        //problem.SetParameterUpperBound(&z(j), 0, 2.16);
+        double initial_depth = 2.147;
+        problem.SetParameterLowerBound(&z(j), 0, initial_depth-3);
+        problem.SetParameterUpperBound(&z(j), 0, initial_depth+3);
 
         if (x == 0 || x == image_width - 1 || y == 0 || y == image_height - 1) {
 
@@ -291,8 +293,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
     // Configure solver
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-    options.preconditioner_type = ceres::JACOBI;
-    options.sparse_linear_algebra_library_type = ceres::CUDA_SPARSE;
+    options.preconditioner_type = ceres::SCHUR_JACOBI;
+    options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
     options.max_num_iterations = 5;
     options.max_linear_solver_iterations = 1;
@@ -306,7 +308,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, double* z_p, const PrecomputedData& da
 
     // Take smaller initial steps
     options.initial_trust_region_radius = 1.0;  // default 10
-    options.max_trust_region_radius = 20.0;    // Limit how large the trust region can grow
+    options.max_trust_region_radius = 1.0;    // Limit how large the trust region can grow
 
 
     // // Line search specific options

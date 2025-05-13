@@ -59,7 +59,7 @@ Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
 
             Eigen::VectorXd vec = Eigen::Map<Eigen::VectorXd>(eigen_matrix.data(), eigen_matrix.size());
 
-            eigen_images.col(index++) = vec;
+            eigen_images.col(index++) = vec / 255.0;
         }
     }
 

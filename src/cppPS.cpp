@@ -66,7 +66,7 @@ std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int r
 
 Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, int roi_width, int roi_height) {
     // Load images with ROI
-    std::string path = "/home/edvard/dev/projects/cppPS/color";
+    std::string path = "/home/edvard/dev/projects/cppPS/ratioImages";
     std::vector<std::string> image_names;
     Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
                                                       start_x, start_y,
@@ -152,10 +152,10 @@ int main(int argc, char** argv) {
 
 
     // In main(), replace the image loading line with:
-    int start_x = 2068;  // Your desired X starting position
-    int start_y = 3502;  // Your desired Y starting position
-    int roi_width = 649;  // Your desired width
-    int roi_height = 397; // Your desired height
+    int start_x = 3418;  // Your desired X starting position
+    int start_y = 4832;  // Your desired Y starting position
+    int roi_width = 569;  // Your desired width
+    int roi_height = 243; // Your desired height
 
     std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
 
