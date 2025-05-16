@@ -102,7 +102,7 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, in
     data.light_positions = light_positions; // Your calibration data
 
     double initial_depth = 2.147;
-    precomputeLightVectors(data, initial_depth);
+    //precomputeLightVectors(data, initial_depth);
     //precomputeGeometricTerms(data);
 
 

@@ -108,11 +108,10 @@ struct PhotometricResidual {
     PhotometricResidual(
     const double I_ji, const double rho_j,
     const Eigen::Matrix3d& Kinv,
-    const Eigen::Matrix3d& Kinv_t,
     const Eigen::Vector3d ray,
     const Eigen::Vector3d light_pos
     )
-: I_ji(I_ji), rho_j(rho_j), Kinv(Kinv), Kinv_t(Kinv_t), ray(ray),
+: I_ji(I_ji), rho_j(rho_j), Kinv(Kinv), ray(ray),
   light_pos(light_pos) {}
 
     template <typename T>
@@ -128,15 +127,13 @@ struct PhotometricResidual {
         dz_y = T(*z_bottom - *z_j);
 
         Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
-        Eigen::Matrix<T, 3, 1> n = Kinv_t * grad_z_neg1;
-        T dpzp = T(n.norm());
         Eigen::Matrix<T, 3, 1>  x_j_3D = *z_j * ray;
 
         Eigen::Matrix<T, 3, 1> light_to_point = light_pos - x_j_3D;
         T distance = T(light_to_point.norm());
         Eigen::Matrix<T, 3, 1> s = light_to_point / (distance * distance * distance);
 
-        T incoming_light = T((Kinv_t * s * dpzp).transpose() * grad_z_neg1);
+        T incoming_light = T(s.transpose() * Kinv * grad_z_neg1);
 
         T light_estimate = T(ceres::fmax(incoming_light,T(0.0)));
         T albedo_adjusted_estimate = light_estimate * T(rho_j);
@@ -149,7 +146,6 @@ private:
     double I_ji;
     double rho_j;
     Eigen::Matrix3d Kinv;
-    Eigen::Matrix3d Kinv_t;
     Eigen::Vector3d ray;
     Eigen::Vector3d light_pos;
 };
@@ -162,10 +158,9 @@ struct AlbedoResidual {
     const double z_right,
     const double z_bottom,
     const Eigen::Matrix3d& Kinv,
-    const Eigen::Matrix3d& Kinv_t,
     const Eigen::Vector3d ray,
     const Eigen::Vector3d light_pos)
-    : I_ji(I_ji), z_j(z_j), z_right(z_right), z_bottom(z_bottom) , Kinv(Kinv), Kinv_t(Kinv_t),
+    : I_ji(I_ji), z_j(z_j), z_right(z_right), z_bottom(z_bottom), Kinv(Kinv),
       ray(ray), light_pos(light_pos){}
 
     template <typename T>
@@ -179,15 +174,13 @@ struct AlbedoResidual {
         dz_y = T(z_bottom - z_j);
 
         Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
-        Eigen::Matrix<T, 3, 1> n = Kinv_t * grad_z_neg1;
-        T dpzp = T(n.norm());
         Eigen::Matrix<T, 3, 1>  x_j_3D = T(z_j) * ray;
 
         Eigen::Matrix<T, 3, 1> light_to_point = light_pos - x_j_3D;
         T distance = T(light_to_point.norm());
         Eigen::Matrix<T, 3, 1> s = light_to_point / (distance * distance * distance);
 
-        T incoming_light = T((Kinv_t * s * dpzp).transpose() * grad_z_neg1);
+        T incoming_light = T(s.transpose() * Kinv * grad_z_neg1);
 
         T light_estimate = ceres::fmax(incoming_light,T(0.0));
         T albedo_adjusted_estimate = T(light_estimate * (*rho_j));
@@ -200,8 +193,6 @@ private:
     double I_ji;
     double z_j, z_right, z_bottom;
     Eigen::Matrix3d Kinv;
-    Eigen::Matrix3d Kinv_t;
-    Eigen::Vector3d geometric_term;
     Eigen::Vector3d ray;
     Eigen::Vector3d light_pos;
 };
@@ -269,7 +260,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
         new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
             new SmoothnessResidual());
 
-#pragma omp parallel for collapse(1) schedule(dynamic) num_threads(16)
+#pragma omp parallel for schedule(dynamic) num_threads(16)
     for (int j = 0; j < data.I.rows(); ++j) { // For each pixel
         int x = j / image_height; // column major (И shapes)
         int y = j % image_height;
@@ -308,7 +299,6 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
                     new PhotometricResidual(
                         data.I(j, i), rho(j),
                         data.Kinv,
-                        data.Kinv_t,
                         data. Kinv * Eigen::Vector3d(x, y, 1.0),
                         data.light_positions[i]
                     )
@@ -324,8 +314,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
             );
 
             double initial_depth = 2.147;
-            problem.SetParameterLowerBound(&z(j), 0, initial_depth-0.2);
-            problem.SetParameterUpperBound(&z(j), 0, initial_depth+0.2);
+            problem.SetParameterLowerBound(&z(j), 0, initial_depth-0.05);
+            problem.SetParameterUpperBound(&z(j), 0, initial_depth+0.05);
         }
     }
 
@@ -343,7 +333,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
         //if (x == image_width - 1 && y == image_height -1) continue;
 
         if (x == 0 || x == image_width - 1 || y == 0 || y == image_height - 1) {
-            //problem.SetParameterBlockConstant(&z(j));
+            problem.SetParameterBlockConstant(&z(j));
         }
     }
 
@@ -352,7 +342,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
     options.preconditioner_type = ceres::SCHUR_JACOBI;
-    options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
+    options.sparse_linear_algebra_library_type = ceres::CUDA_SPARSE;
     options.minimizer_progress_to_stdout = true;
     options.max_num_iterations = 1;
     options.max_linear_solver_iterations = 5;
@@ -395,7 +385,7 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
 
     auto loss = nullptr;
     // Add residuals for all pixels and lights
-#pragma omp parallel for collapse(1) schedule(dynamic) num_threads(16)
+#pragma omp parallel for schedule(dynamic) num_threads(16)
     for (int j = 0; j < data.I.rows(); ++j) { // For each pixel
         int x = j / image_height; // column major (И shapes)
         int y = j % image_height;
@@ -419,7 +409,6 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
                         data.I(j, i),
                         z(j), z(j_right), z(j_bottom),
                         data.Kinv,
-                        data.Kinv_t,
                         data. Kinv * Eigen::Vector3d(x, y, 1.0),
                         data.light_positions[i]
                     )

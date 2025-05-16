@@ -20,51 +20,64 @@ Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
                                               int roi_width,
                                               int roi_height) {
     Eigen::MatrixXd eigen_images;
+    std::vector<fs::path> valid_paths;
     int h = 0, w = 0, pixels = 0, index = 0;
 
     image_names.clear();
 
     for (const auto& entry : fs::directory_iterator(directory_path)) {
         auto ext = entry.path().extension().string();
-        if (ext == ".PNG" || ext == ".JPG") {
+        if (ext == ".JPG") {
+            valid_paths.push_back(entry.path());
             image_names.push_back(entry.path().filename().string());
-            cv::Mat color_image = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
-            cv::Mat lab_image;
-            cv::cvtColor(color_image, lab_image, cv::COLOR_BGR2Lab);
-            std::vector<cv::Mat> lab_channels;
-            cv::split(lab_image, lab_channels);
-            cv::Mat full_image = lab_channels[0];
-
-            if (h == 0 && w == 0) {
-                // Ensure ROI is within image bounds
-                if (start_x + roi_width > full_image.cols || start_y + roi_height > full_image.rows) {
-                    throw std::runtime_error("ROI extends beyond image boundaries");
-                }
-                h = roi_height;
-                w = roi_width;
-                pixels = h * w;
-                eigen_images = Eigen::MatrixXd(pixels, std::distance(fs::directory_iterator(directory_path), fs::directory_iterator()));
-            }
-
-            if (full_image.empty()) {
-                std::cerr << "Warning: Could not read " << entry.path() << std::endl;
-                continue;
-            }
-
-            // Extract ROI
-            cv::Mat gray = full_image(cv::Rect(start_x, start_y, roi_width, roi_height));
-
-            Eigen::MatrixXd eigen_matrix;
-            cv::cv2eigen(gray, eigen_matrix);
-
-            Eigen::VectorXd vec = Eigen::Map<Eigen::VectorXd>(eigen_matrix.data(), eigen_matrix.size());
-
-            eigen_images.col(index++) = vec / 255.0;
         }
     }
 
-    if (eigen_images.rows() == 0 || eigen_images.cols() == 0) {
-        throw std::runtime_error("No valid images found in " + directory_path);
+    cv::Mat color_image = cv::imread(valid_paths[0].string(), cv::IMREAD_COLOR);
+    cv::Mat lab_image;
+    cv::cvtColor(color_image, lab_image, cv::COLOR_BGR2Lab);
+    std::vector<cv::Mat> lab_channels;
+    cv::split(lab_image, lab_channels);
+    cv::Mat full_image = lab_channels[0];
+
+    // Ensure ROI is within image bounds
+    if (start_x + roi_width > full_image.cols || start_y + roi_height > full_image.rows) {
+        throw std::runtime_error("ROI extends beyond image boundaries");
+    }
+    h = roi_height;
+    w = roi_width;
+    pixels = h * w;
+
+    eigen_images = Eigen::MatrixXd(pixels, valid_paths.size());
+
+    std::vector<Eigen::VectorXd> image_vectors(valid_paths.size());
+
+    #pragma omp parallel for schedule(dynamic) num_threads(16)
+    for (int i = 0; i < valid_paths.size(); ++i) {
+        cv::Mat color_image = cv::imread(valid_paths[i].string(), cv::IMREAD_COLOR);
+        cv::Mat lab_image;
+        cv::cvtColor(color_image, lab_image, cv::COLOR_BGR2Lab);
+        std::vector<cv::Mat> lab_channels;
+        cv::split(lab_image, lab_channels);
+        cv::Mat full_image = lab_channels[0];
+
+        if (full_image.empty()) {
+            std::cerr << "Warning: Could not read " << valid_paths[i] << std::endl;
+            image_vectors[i] = Eigen::VectorXd::Zero(pixels);
+            continue;
+        }
+
+        cv::Mat gray = full_image(cv::Rect(start_x, start_y, roi_width, roi_height));
+
+        Eigen::MatrixXd eigen_matrix;
+        cv::cv2eigen(gray, eigen_matrix);
+
+        Eigen::VectorXd vec = Eigen::Map<Eigen::VectorXd>(eigen_matrix.data(), eigen_matrix.size());
+        image_vectors[i] = vec / 255.0;
+    }
+
+    for (int i = 0; i < valid_paths.size(); ++i) {
+        eigen_images.col(i) = image_vectors[i];
     }
 
     return eigen_images;
