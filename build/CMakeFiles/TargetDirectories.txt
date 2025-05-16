@@ -1,3 +1,0 @@
-/home/edvard/dev/projects/cppPS/build/CMakeFiles/cppPS.dir
-/home/edvard/dev/projects/cppPS/build/CMakeFiles/edit_cache.dir
-/home/edvard/dev/projects/cppPS/build/CMakeFiles/rebuild_cache.dir
