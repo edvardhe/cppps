@@ -66,7 +66,7 @@ std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int r
 
 Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, int roi_width, int roi_height) {
     // Load images with ROI
-    std::string path = "/home/edvard/dev/projects/cppPS/ratioImages";
+    std::string path = "/home/edvard/dev/projects/cppPS/color";
     std::vector<std::string> image_names;
     Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
                                                       start_x, start_y,
@@ -94,28 +94,39 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, in
     data.width = roi_width;   // Image width
     data.height = roi_height; // Image height
     data.K = K_pixel;         // Camera intrinsics
+    data.K(0,2) -= start_x;
+    data.K(1,2) -= start_y;
+    data.Kinv = K_pixel.inverse();
+    data.Kinv_t = K_pixel.inverse().transpose();
     data.I = images;          // Input images
-    data.rho = false ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
     data.light_positions = light_positions; // Your calibration data
-
-    // 3. Compute Jacobians for all pixels
-    precomputeJacobian(data);
-
-    std::vector<Eigen::Vector3d> precomputed_light_dirs; // [pixel][light]
-    std::vector<double> precomputed_distances;           // [pixel][light]
 
     double initial_depth = 2.147;
     precomputeLightVectors(data, initial_depth);
+    //precomputeGeometricTerms(data);
 
 
-    // 4. Initialize depth
+    // Initialize depth
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     Eigen::VectorXd z(n_pixels);
     z.setConstant(initial_depth);  // Meter initialization
 
+    double perturbation_scale = 0.005;
+
+    //std::srand(std::time(nullptr));
+    //for (int j = 0; j < z.size(); ++j) {
+    //    double random_value = 2.0 * (static_cast<double>(std::rand()) / RAND_MAX) - 1.0;
+    //    z(j) += random_value * perturbation_scale;
+    //}
+
+    // Initialize albedo
+    Eigen::VectorXd rho;
+    rho = false ? Eigen::VectorXd(n_pixels).setConstant(1.0) : images.rowwise().mean(); // Mean per pixel
+
     // z-step: Update depth map
     std::cout << "I rows: " << data.I.rows() << ", cols: " << data.I.cols() << std::endl;
-    optimizeDepthMap(z, z.data(), data);
+
+    optimizeDepthAndAlbedo(z, rho, data);
 
     Eigen::MatrixXd depth_map(Eigen::Map<Eigen::MatrixXd>(z.data(), data.height, data.width));
 
@@ -152,10 +163,18 @@ int main(int argc, char** argv) {
 
 
     // In main(), replace the image loading line with:
+    // Small Letters Example
     int start_x = 3418;  // Your desired X starting position
-    int start_y = 4832;  // Your desired Y starting position
+    int start_y = 4850;  // Your desired Y starting position
     int roi_width = 569;  // Your desired width
-    int roi_height = 243; // Your desired height
+    int roi_height = 223; // Your desired height
+
+    // R example
+    // int start_x = 2061;  // Your desired X starting position
+    // int start_y = 3514;  // Your desired Y starting position
+    // int roi_width = 665;  // Your desired width
+    // int roi_height = 371; // Your desired height
+
 
     std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
 

@@ -29,7 +29,7 @@ Eigen::Matrix3d calculateCroppedKMatrix(Eigen::Matrix3d K,
                                         int start_x,
                                         int start_y);
 
-void precomputeJacobian(PrecomputedData& data);
+void precomputeGeometricTerms(PrecomputedData& data);
 
 Eigen::Matrix3Xd KPixelToCm(Eigen::Matrix3Xd K_px,
                             float px_per_m_x,

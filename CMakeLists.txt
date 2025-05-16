@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(cppPS)
+project(cppPS LANGUAGES CXX CUDA)
 
 set(CMAKE_BUILD_TYPE Debug) # Ensure the build type is Debug
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g") # Add debugging symbols
@@ -19,11 +19,20 @@ find_package(glog REQUIRED)
 # Find Ceres Solver
 find_package(Ceres REQUIRED)
 
+# Enable CUDA
+find_package(CUDA REQUIRED)
+
+
 # Add your executable
 add_executable(cppPS
                 src/cppPS.cpp
                 src/MatrixProcessing.cpp
-                src/optProblem.cpp)
+                src/optProblem.cpp
+        src/depthMapHandler.cpp
+        src/depthMapHandler.h
+        src/imagePreprocessing.cpp
+        src/imagePreprocessing.h
+)
 
 # Link OpenCV and set include directories
 target_link_libraries(cppPS PRIVATE ${OpenCV_LIBS} glog::glog Ceres::ceres)

@@ -140,37 +140,25 @@ Eigen::Matrix3d calculateCroppedKMatrix(Eigen::Matrix3d K, int start_x, int star
     return K_cropped_px;
 }
 
-void precomputeJacobian(PrecomputedData& data) {
-    // Precompute the Jacobian for all pixels
+void precomputeGeometricTerms(PrecomputedData& data) {
+    std::vector<Eigen::Vector3d> geometric_terms(data.I.rows() * data.I.cols());
+    data.geometric_terms = geometric_terms;
 
-    Eigen::Matrix3d K_px = data.K;
+    #pragma omp parallel for collapse(1) schedule(dynamic) num_threads(16)
+    for (int j = 0; j < data.I.rows(); ++j) {
+        for (int i = 0; i < data.I.cols(); ++i) {
 
-    int start_x = data.start_x;
-    int start_y = data.start_y;
+            int idx = j * data.I.cols() + i;
+            // Compute geometric terms for pixel (j, i)
 
-    int end_x = start_x + data.width;
-    int end_y = start_y + data.height;
+            double distance = data.light_distances[idx];
+            Eigen::Vector3d light_dir = data.light_dirs[idx];
+            double falloff = 1.0 / (distance * distance);
+            Eigen::Vector3d s = falloff * light_dir;
 
-    double fx = K_px(0, 0);
-    double fy = K_px(1, 1);
-    double s = K_px(0, 1);
-    double x0 = K_px(0, 2);
-    double y0 = K_px(1, 2);
-
-    data.J_all_pixels.resize(data.width * data.height);
-
-    for (int y = start_y; y < end_y; ++y) {
-        for (int x = start_x; x < end_x; ++x) {
-            int j = (y - start_y) + (x - start_x) * data.height;
-            Eigen::Matrix3d J;
-            J << fx,  s, -(x - x0),
-                0, fy, -(y - y0),
-                0,  0,  1;
-            data.J_all_pixels[j] = J;
+            data.geometric_terms[idx] = s;
         }
     }
-
-    return;
 }
 
 Eigen::Matrix3Xd KPixelToCm(Eigen::Matrix3Xd K_px, float px_per_cm_x, float px_per_cm_y) {
@@ -211,6 +199,7 @@ void precomputeLightVectors(PrecomputedData& data, double z_init) {
     data.light_dirs.resize(num_pixels * num_lights);
     data.light_distances.resize(num_pixels * num_lights);
 
+#pragma omp parallel for schedule(dynamic) num_threads(16)
     for (int j = 0; j < num_pixels; ++j) {
         int x_j = j / data.height;
         int y_j = j % data.height;
