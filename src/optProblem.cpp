@@ -343,7 +343,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
         //if (x == image_width - 1 && y == image_height -1) continue;
 
         if (x == 0 || x == image_width - 1 || y == 0 || y == image_height - 1) {
-            problem.SetParameterBlockConstant(&z(j));
+            //problem.SetParameterBlockConstant(&z(j));
         }
     }
 
