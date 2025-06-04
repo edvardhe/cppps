@@ -1,8 +1,18 @@
 cmake_minimum_required(VERSION 3.10)
+
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
+
 project(cppPS LANGUAGES CXX CUDA)
 
-set(CMAKE_BUILD_TYPE Debug) # Ensure the build type is Debug
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g") # Add debugging symbols
+# Change this line from Debug to Release for optimization
+set(CMAKE_BUILD_TYPE Release)
+
+# Add optimization flags for Release build
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG -flto")
+
+# Keep debug flags for when you need debugging
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+
 
 # Find Eigen3 (no linking required for header-only library)
 find_package(Eigen3 REQUIRED)
@@ -18,9 +28,6 @@ find_package(glog REQUIRED)
 
 # Find Ceres Solver
 find_package(Ceres REQUIRED)
-
-# Enable CUDA
-find_package(CUDA REQUIRED)
 
 
 # Add your executable

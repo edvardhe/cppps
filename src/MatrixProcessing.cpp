@@ -92,9 +92,9 @@ std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_pa
 
     Eigen::Matrix3d R;
     R << 0.99902827, -0.0183341, -0.04007967,
-        -0.01757252, -0.99965984,  0.01927205,
-        -0.04041937, -0.01854902, -0.99901061;
-        
+     -0.01757252, -0.99965984,  0.01927205,
+     -0.04041937, -0.01854902, -0.99901061;
+
     Eigen::Vector3d t;
     t << 33.10792131, 73.1994093, -217.6922226;
 
@@ -124,9 +124,8 @@ std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_pa
 
                 // Transform from world to camera coordinates
                 // p_cam = R^T * (p_world - t)
-                
-                
                 positions[i] = (Rc * (R.transpose() * (pos_world - t))) / 100.0; // Convert to meters
+                //positions[i] = pos_world / 100.0; // Convert to meters
 
                 found = true;
                 break;
@@ -188,6 +187,39 @@ Eigen::Matrix3Xd KPixelToCm(Eigen::Matrix3Xd K_px, float px_per_cm_x, float px_p
 
     return K_cm;
 }
+
+void precomputeJacobian(PrecomputedData& data) {
+    // Precompute the Jacobian for all pixels
+
+    Eigen::Matrix3d K_px = data.K_pixel;
+
+    int start_x = data.start_x;
+    int start_y = data.start_y;
+
+    int end_x = start_x + data.width;
+    int end_y = start_y + data.height;
+
+    double fx = K_px(0, 0);
+    double fy = K_px(1, 1);
+    double s = K_px(0, 1);
+    double x0 = data.K(0, 2);
+    double y0 = data.K(1, 2);
+
+    data.J_all_pixels.resize(data.width * data.height);
+    for (int x = start_x; x < end_x; ++x) {
+        for (int y = start_y; y < end_y; ++y) {
+            Eigen::Matrix3d J;
+            int local_x = x - start_x;
+            int local_y = y - start_y;
+            J << fx,  s, -(local_x - x0),
+                 0, fy, -(local_y - y0),
+                 0,  0,  1;
+            data.J_all_pixels[(y-start_y) + (x-start_x) * data.height] = J;
+        }
+    }
+    return;
+}
+
 
 Eigen::Matrix3Xd KCmToPixel(Eigen::Matrix3Xd K_cm, float px_per_m_x, float px_per_m_y) {
         // Convert pixel coordinates to cm coordinates

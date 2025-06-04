@@ -7,6 +7,7 @@
 #include "optProblem.h"
 
 struct ROI {
+    std::string name;
     int x;
     int y;
     int start_x;
@@ -41,5 +42,7 @@ Eigen::Matrix3Xd KCmToPixel(Eigen::Matrix3Xd K_cm,
 
 void precomputeLightVectors(PrecomputedData& data,
                             double z_init);
+
+void precomputeJacobian(PrecomputedData& data);
 
 #endif // MATRIX_PROCESSING_H

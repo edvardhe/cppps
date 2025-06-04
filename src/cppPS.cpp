@@ -20,7 +20,7 @@ using json = nlohmann::json;
 std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int roi_height) {
     std::vector<ROI> rois;
 
-    // Define overlap size
+
     const int overlap = 10;
 
     // Calculate effective step size (accounting for overlap)
@@ -35,6 +35,8 @@ std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int r
     for (int y = 0; y < num_rois_y; ++y) {
         for (int x = 0; x < num_rois_x; ++x) {
             ROI roi;
+
+            roi.name = "ROI_" + std::to_string(x) + "_" + std::to_string(y);
 
             // Store grid position
             roi.x = x;
@@ -64,13 +66,14 @@ std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int r
     return rois;
 }
 
-Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, int roi_width, int roi_height) {
+Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
     // Load images with ROI
+    std::cout << "Computing region of interest: " + roi.name << std::endl;
     std::string path = "/home/edvard/dev/projects/cppPS/color";
     std::vector<std::string> image_names;
     Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
-                                                      start_x, start_y,
-                                                      roi_width, roi_height);
+                                                      roi.start_x, roi.start_y,
+                                                      roi.width, roi.height);
 
     // Load images
     //Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names, image_width, image_height);
@@ -89,17 +92,18 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, int start_x, int start_y, in
     PrecomputedData data;
 
     // 2. Populate precomputed data
-    data.start_x = start_x;   // X starting position
-    data.start_y = start_y;   // Y starting position
-    data.width = roi_width;   // Image width
-    data.height = roi_height; // Image height
-    data.K = K_pixel;         // Camera intrinsics
-    data.K(0,2) -= start_x;
-    data.K(1,2) -= start_y;
-    data.Kinv = K_pixel.inverse();
-    data.Kinv_t = K_pixel.inverse().transpose();
+    data.start_x = roi.start_x;   // X starting position
+    data.start_y = roi.start_y;   // Y starting position
+    data.width = roi.width;   // Image width
+    data.height = roi.height; // Image height
+    data.K_pixel = K_pixel;
+    data.K = data.K_pixel;         // Camera intrinsics
+    data.Kinv = data.K.inverse();
+    data.Kinv_t = data.K.inverse().transpose();
     data.I = images;          // Input images
     data.light_positions = light_positions; // Your calibration data
+
+    //precomputeJacobian(data);
 
     double initial_depth = 2.147;
     //precomputeLightVectors(data, initial_depth);
@@ -157,30 +161,75 @@ int main(int argc, char** argv) {
          0.0, f, sensor_height / 2.0,
          0.0, 0.0, 1.0;
 
+    double px_per_m = (px_per_m_x + px_per_m_y) / 2.0;
+
     K_pixel << f * px_per_m_x, 0.0,             image_width / 2.0,
                0.0,             f * px_per_m_y, image_height / 2.0,
                0.0,             0.0,            1.0;
 
 
-    // In main(), replace the image loading line with:
     // Small Letters Example
-    int start_x = 3418;  // Your desired X starting position
-    int start_y = 4850;  // Your desired Y starting position
-    int roi_width = 569;  // Your desired width
-    int roi_height = 223; // Your desired height
+    ROI small_letters_roi;
+    small_letters_roi.name = "small_letters";
+    small_letters_roi.start_x = 3418;
+    small_letters_roi.start_y = 4850;
+    small_letters_roi.width = 569;
+    small_letters_roi.height = 223;
 
     // R example
-    // int start_x = 2061;  // Your desired X starting position
-    // int start_y = 3514;  // Your desired Y starting position
-    // int roi_width = 665;  // Your desired width
-    // int roi_height = 371; // Your desired height
+    ROI R_roi;
+    R_roi.name = "R";
+    R_roi.start_x = 2061;
+    R_roi.start_y = 3514;
+    R_roi.width = 665;
+    R_roi.height = 371;
+
+    // Really small R
+    ROI really_small_R_roi;
+    really_small_R_roi.name = "small_R";
+    really_small_R_roi.start_x = 2061;
+    really_small_R_roi.start_y = 3514;
+    really_small_R_roi.width = 665;
+    really_small_R_roi.height = 371;
+
+    // Sword example
+    ROI sword_roi;
+    sword_roi.name = "sword";
+    sword_roi.start_x = 3328;
+    sword_roi.start_y = 5949;
+    sword_roi.width = 605;
+    sword_roi.height = 844;
+
+    // Flower example
+    ROI flower_roi;
+    flower_roi.name = "flower";
+    flower_roi.start_x = 3404;
+    flower_roi.start_y = 5455;
+    flower_roi.width = 549;
+    flower_roi.height = 469;
+
+    // Double cross example
+    ROI double_cross_roi;
+    double_cross_roi.name = "double_cross";
+    double_cross_roi.start_x = 3023;
+    double_cross_roi.start_y = 5488;
+    double_cross_roi.width = 325;
+    double_cross_roi.height = 467;
 
 
-    std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
+    std::vector<ROI> regions_of_interest_test = {R_roi};
 
-    Eigen::MatrixXd z = runWithRoi(K_pixel, start_x, start_y, roi_width, roi_height);
+     for (const ROI& roi : regions_of_interest_test) {
+         std::string example_dir = "/home/edvard/Documents/ReportExamplesTest/" + roi.name;
+         Eigen::MatrixXd z = runWithRoi(K_pixel, roi);
+         depth::saveDepthMap(z, example_dir, roi.name);
+     }
     return 0;
 
+    int roi_width = 900;
+    int roi_height = 900;
+
+    std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
     for (const ROI& roi : regions_of_interest) {
         std::string patch_dir = "/home/edvard/dev/projects/cppPS/depthPatches";
         std::string patch_path = patch_dir + "/depth_" + std::to_string(roi.x) + "_" + std::to_string(roi.y) + ".dmap";
@@ -192,7 +241,7 @@ int main(int argc, char** argv) {
                   << ") with size " << roi.width << "x" << roi.height << std::endl;
 
 
-        Eigen::MatrixXd z = runWithRoi(K_pixel, roi.start_x, roi.start_y, roi.width, roi.height);
+        Eigen::MatrixXd z = runWithRoi(K_pixel, roi);
         depth::saveDepthMap(z, "/home/edvard/dev/projects/cppPS/depthMapPatches",
                             std::to_string(roi.x) + "_" + std::to_string(roi.y));
         depth::saveDepthMapBinary(z.data(), roi, patch_dir);
