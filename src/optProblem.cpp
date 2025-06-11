@@ -109,10 +109,14 @@ struct PhotometricResidual {
     const double I_ji, const double rho_j,
     const Eigen::Matrix3d& Kinv_t,
     const Eigen::Vector3d& ray,
-    const Eigen::Vector3d& light_pos
+    const double light_distance,
+    const Eigen::Vector3d& light_direction,
+    const Eigen::Vector3d& sphere_position,
+    const double light_intensity
     )
 : I_ji(I_ji), rho_j(rho_j), Kinv_t(Kinv_t), ray(ray),
-  light_pos(light_pos) {}
+  light_distance(light_distance), light_direction(light_direction), sphere_position(sphere_position),
+  light_intensity(light_intensity) {}
 
     template <typename T>
     bool operator()(const T* const z_j,
@@ -129,6 +133,7 @@ struct PhotometricResidual {
         Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
         Eigen::Matrix<T, 3, 1>  x_j_3D = *z_j * ray.cast<T>();
 
+        Eigen::Matrix<T, 3, 1> light_pos = light_direction.cast<T>() * light_distance + sphere_position.cast<T>();
         Eigen::Matrix<T, 3, 1> light_to_point = light_pos - x_j_3D;
         T distance = T(light_to_point.norm());
         Eigen::Matrix<T, 3, 1> s = light_to_point / (distance * distance * distance);
@@ -136,7 +141,7 @@ struct PhotometricResidual {
         T incoming_light = T(s.transpose() * (Kinv_t * grad_z_neg1));
 
         T light_estimate = T(ceres::fmax(incoming_light,T(0.0)));
-        T albedo_adjusted_estimate = light_estimate * T(rho_j);
+        T albedo_adjusted_estimate = light_estimate * T(rho_j) * light_intensity;
 
         // Compute residual
         residual[0] = (T(I_ji) - albedo_adjusted_estimate);
@@ -147,21 +152,26 @@ private:
     double rho_j;
     Eigen::Matrix3d Kinv_t;
     Eigen::Vector3d ray;
-    Eigen::Vector3d light_pos;
+    double light_intensity;
+    double light_distance;
+    Eigen::Vector3d light_direction;
+    Eigen::Vector3d sphere_position;
 };
 
-// 1. Photometric residual only
 struct AlbedoResidual {
     AlbedoResidual(
     const double I_ji,
     const double z_j,
     const double z_right,
     const double z_bottom,
+    const double light_distance,
     const Eigen::Matrix3d& Kinv_t,
     const Eigen::Vector3d ray,
-    const Eigen::Vector3d light_pos)
-    : I_ji(I_ji), z_j(z_j), z_right(z_right), z_bottom(z_bottom), Kinv_t(Kinv_t),
-      ray(ray), light_pos(light_pos){}
+    const Eigen::Vector3d light_direction,
+    const Eigen::Vector3d sphere_position,
+    const double light_intensity)
+    : I_ji(I_ji), z_j(z_j), z_right(z_right), z_bottom(z_bottom), light_distance(light_distance), Kinv_t(Kinv_t),
+      ray(ray), light_direction(light_direction), sphere_position(sphere_position), light_intensity(light_intensity) {}
 
     template <typename T>
     bool operator()(const T* const rho_j,
@@ -176,6 +186,7 @@ struct AlbedoResidual {
         Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
         Eigen::Matrix<T, 3, 1>  x_j_3D = T(z_j) * ray.cast<T>();
 
+        Eigen::Matrix<T, 3, 1> light_pos = light_direction.cast<T>() * T(light_distance) + sphere_position.cast<T>();
         Eigen::Matrix<T, 3, 1> light_to_point = light_pos - x_j_3D;
 
         T distance = T(light_to_point.norm());
@@ -184,7 +195,7 @@ struct AlbedoResidual {
         T incoming_light = T(s.transpose() * (Kinv_t * grad_z_neg1));
 
         T light_estimate = ceres::fmax(incoming_light,T(0.0));
-        T albedo_adjusted_estimate = T(light_estimate * (*rho_j));
+        T albedo_adjusted_estimate = T(light_estimate * (*rho_j)) * T(light_intensity);
 
         // Compute residual
         residual[0] = (T(I_ji) - albedo_adjusted_estimate);
@@ -193,62 +204,79 @@ struct AlbedoResidual {
 private:
     double I_ji;
     double z_j, z_right, z_bottom;
+    double light_distance;
+    double light_intensity;
     Eigen::Matrix3d Kinv_t;
     Eigen::Vector3d ray;
-    Eigen::Vector3d light_pos;
+    Eigen::Vector3d light_direction;
+    Eigen::Vector3d sphere_position;
 };
 
-// 2. Smoothness residual only
-struct SmoothnessResidual {
-    SmoothnessResidual() {}
+struct LightPosResidual {
+    LightPosResidual(
+    const double I_ji,
+    const double z_j,
+    const double z_right,
+    const double z_bottom,
+    const double rho_j,
+    const Eigen::Matrix3d& Kinv_t,
+    const Eigen::Vector3d ray,
+    const Eigen::Vector3d light_direction)
+    : I_ji(I_ji), z_j(z_j), z_right(z_right), z_bottom(z_bottom), rho_j(rho_j), Kinv_t(Kinv_t),
+      ray(ray), light_direction(light_direction) {}
 
     template <typename T>
-    bool operator()(const T* const z_center,
-                    const T* const z_right,
-                    const T* const z_left,
-                    const T* const z_top,
-                    const T* const z_bottom,
+    bool operator()(const T* const light_distance,
+                    const T* const light_intensity,
+                    const T* const sphere_pos,
                     T* residual) const {
-        // First derivatives (gradient)
-        T dz_x = (*z_right - *z_left) / T(2.0);
-        T dz_y = (*z_top - *z_bottom) / T(2.0);
+        // --- Gradient Calculation with Boundary Handling ---
+        T dz_x, dz_y;
 
-        T laplacian = *z_right + *z_left + *z_top + *z_bottom - 4.0 * *z_center;
-        T curve_penalty = laplacian;
-        // Roughness penalty
-        T weight = T(10000);
-        residual[0] = curve_penalty * weight;
+        // forward difference
+        dz_x = T(z_right - z_j);
+        dz_y = T(z_bottom - z_j);
+
+        Eigen::Matrix<T, 3, 1> grad_z_neg1(dz_x, dz_y, T(-1.0));
+        Eigen::Matrix<T, 3, 1>  x_j_3D = T(z_j) * ray.cast<T>();
+
+        Eigen::Map<const Eigen::Matrix<T,3,1>> sphere_position(sphere_pos);
+        Eigen::Matrix<T, 3, 1> light_pos = light_direction.cast<T>() * T(*light_distance) + sphere_position;
+        Eigen::Matrix<T, 3, 1> light_to_point = light_pos - x_j_3D;
+
+        T distance = T(light_to_point.norm());
+        Eigen::Matrix<T, 3, 1> s = light_to_point / (distance * distance * distance);
+
+        T incoming_light = T(s.transpose() * (Kinv_t * grad_z_neg1));
+
+        T light_estimate = ceres::fmax(incoming_light,T(0.0));
+        T albedo_adjusted_estimate = T(light_estimate * rho_j) * T(*light_intensity);
+
+        // Compute residual
+        residual[0] = (T(I_ji) - albedo_adjusted_estimate);
         return true;
     }
-};
-
-struct depthResidual {
-    depthResidual() {}
-
-    template <typename T>
-    bool operator()(const T* const z_j,
-                    T* residual) const {
-        // Depth prior
-        T depth_prior = T(2.147);
-        T penalty = ceres::fmax(T(0.0), depth_prior - *z_j);
-        T depth_prior_penalty = T(100.0) * penalty;
-        residual[0] = depth_prior_penalty;
-        return true;
-    }
+private:
+    double I_ji;
+    double z_j, z_right, z_bottom;
+    double rho_j;
+    Eigen::Matrix3d Kinv_t;
+    Eigen::Vector3d ray;
+    Eigen::Vector3d light_direction;
+    Eigen::Vector3d sphere_position;
 };
 
 // Main function for depth optimization step
-void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const PrecomputedData& data, int iteration_count) {
+void optimizeDepthMap(
+        Eigen::VectorXd& z, Eigen::VectorXd& rho, double &light_intensity, Eigen::VectorXd& distances,
+        Eigen::Vector3d& sphere_position,
+        const PrecomputedData& data, int iteration_count) {
     ceres::Problem problem;
     int image_width = data.width;
     int image_height = data.height;
 
-    auto loss = new ceres::HuberLoss(1);
+    auto loss = new ceres::CauchyLoss(1);
     // Add residuals for all pixels and lights
-
-    ceres::CostFunction* smoothness_cost_function =
-        new ceres::AutoDiffCostFunction<SmoothnessResidual, 1, 1, 1, 1, 1, 1>(
-            new SmoothnessResidual());
 
     for (int j = 0; j < data.I.rows(); ++j) { // For each pixel
         int x = j / image_height; // column major (И shapes)
@@ -291,7 +319,10 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
                         data.I(j, i), rho(j),
                         data.Kinv_t,
                         data.Kinv * Eigen::Vector3d(glob_x, glob_y, 1.0),
-                        data.light_positions[i]
+                        distances[i],
+                        data.light_dirs[i],
+                        sphere_position,
+                        light_intensity
                     )
                 );
 
@@ -305,8 +336,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
             );
 
             double initial_depth = 2.147;
-            problem.SetParameterLowerBound(&z(j), 0, initial_depth-0.5);
-            problem.SetParameterUpperBound(&z(j), 0, initial_depth+0.5);
+            problem.SetParameterLowerBound(&z(j), 0, initial_depth-0.05);
+            problem.SetParameterUpperBound(&z(j), 0, initial_depth+0.05);
         }
     }
 
@@ -334,7 +365,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
     options.preconditioner_type = ceres::SCHUR_JACOBI;
     options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 1;
+    options.max_num_iterations = 5;
     options.max_linear_solver_iterations = 5;
     options.function_tolerance = 1e-9;
     options.gradient_tolerance = 1e-7;
@@ -345,8 +376,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
     options.minimizer_type = ceres::TRUST_REGION;
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
 
-    options.initial_trust_region_radius = 1.0;  // default 10
-    options.max_trust_region_radius = 10.0;    // Limit how large the trust region can grow
+    options.initial_trust_region_radius = 100.0;  // default 10
+    //options.max_trust_region_radius = 10.0;    // Limit how large the trust region can grow
 
     options.num_threads = 16;
 
@@ -369,13 +400,15 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
     // std::cout << summary.FullReport() << "\n";
 }
 
-void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedData &data, int iteration_count) {
+void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, double &light_intensity, Eigen::VectorXd& distances,
+        Eigen::Vector3d& sphere_position,
+        const PrecomputedData data, int iteration_count) {
     ceres::Problem problem;
     int image_width = data.width;
     int image_height = data.height;
 
 
-    auto loss = new ceres::HuberLoss(1);
+    auto loss = new ceres::CauchyLoss(1);
     // Add residuals for all pixels and lights
 
     for (int j = 0; j < data.I.rows(); ++j) {
@@ -403,9 +436,12 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
                     new AlbedoResidual(
                         data.I(j, i),
                         z(j), z(j_right), z(j_bottom),
+                        distances[i],
                         data.Kinv_t,
                         data.Kinv * Eigen::Vector3d(glob_x, glob_y, 1.0),
-                        data.light_positions[i]
+                        data.light_dirs[i],
+                        sphere_position,
+                        light_intensity
                     )
                 );
 
@@ -416,7 +452,7 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
                 &rho(j)        // Current albedo
             );
 
-            problem.SetParameterUpperBound(&rho(j),0,10);
+            //problem.SetParameterUpperBound(&rho(j),0,1);
             problem.SetParameterLowerBound(&rho(j),0,0);
         }
     }
@@ -428,8 +464,8 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
     options.preconditioner_type = ceres::JACOBI;
     options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 1;
-    options.max_linear_solver_iterations = 10;
+    options.max_num_iterations = 5;
+    options.max_linear_solver_iterations = 5;
     options.function_tolerance = 1e-9;
     options.gradient_tolerance = 1e-7;
     options.parameter_tolerance = 4e-9;
@@ -440,8 +476,8 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
 
     // Take smaller initial steps
-    options.initial_trust_region_radius = 1.0;  // default 10
-    options.max_trust_region_radius = 10.0;
+    options.initial_trust_region_radius = 100.0;  // default 10
+    //options.max_trust_region_radius = 10.0;
 
     options.num_threads = 16;
 
@@ -461,7 +497,104 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
     options.callbacks.clear();
 }
 
-void optimizeDepthAndAlbedo(Eigen::VectorXd& z, Eigen::VectorXd& rho, const PrecomputedData& data) {
+void optimizeLightPos(Eigen::VectorXd &z, Eigen::VectorXd &rho, double &light_intensity, Eigen::VectorXd& distances,
+        Eigen::Vector3d& sphere_position,
+        const PrecomputedData data, int iteration_count) {
+    ceres::Problem problem;
+    int image_width = data.width;
+    int image_height = data.height;
+
+
+    auto loss = new ceres::TrivialLoss;
+    // Add residuals for all pixels and lights
+
+    for (int j = 0; j < data.I.rows(); ++j) {
+        // For each pixel
+        int x = j / image_height; // column major (И shapes)
+        int y = j % image_height;
+
+        int glob_x = data.start_x + x;
+        int glob_y = data.start_y + y;
+
+        // Skip boundary pixels (no neighbors exist)
+        if (x == image_width - 1 || y == image_height - 1) {
+            continue;
+        }
+
+        // Neighbor indices (safe, since we skipped boundaries)
+        int j_right = j + image_height;
+        int j_bottom = j + 1;
+
+        for (int i = 0; i < data.I.cols(); ++i) { // For each light
+            int idx = j * data.I.cols() + i;
+
+            ceres::CostFunction* distance_cost_function =
+                new ceres::AutoDiffCostFunction<LightPosResidual, 1, 1, 1, 3>(
+                    new LightPosResidual(
+                        data.I(j, i),
+                        z(j), z(j_right), z(j_bottom),
+                        rho(j),
+                        data.Kinv_t,
+                        data.Kinv * Eigen::Vector3d(glob_x, glob_y, 1.0),
+                        data.light_dirs[i]
+                    )
+                );
+
+            // Add residual block with all 5 parameters
+            problem.AddResidualBlock(
+                distance_cost_function,
+                loss,
+                &distances[i],  // Distance to light source
+                &light_intensity,
+                sphere_position.data()
+            );
+
+            //problem.SetParameterUpperBound(&distances[i],0,5);
+            //problem.SetParameterLowerBound(&distances[i],0,0);
+        }
+    }
+    std::cout << "Added " << data.I.rows() * data.I.cols() << " light residuals" << std::endl;
+
+    // Configure solver
+    ceres::Solver::Options options;
+    options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+    options.preconditioner_type = ceres::JACOBI;
+    options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
+    options.minimizer_progress_to_stdout = true;
+    options.max_num_iterations = 5;
+    options.max_linear_solver_iterations = 5;
+    options.function_tolerance = 1e-9;
+    options.gradient_tolerance = 1e-7;
+    options.parameter_tolerance = 4e-9;
+    options.use_nonmonotonic_steps = true;
+    options.jacobi_scaling = true;
+    options.use_inner_iterations = false;
+    options.minimizer_type = ceres::TRUST_REGION;
+    options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+
+    // Take smaller initial steps
+    options.initial_trust_region_radius = 100.0;  // default 10
+    //options.max_trust_region_radius = 10.0;
+
+    options.num_threads = 16;
+
+    // Create and add the callback for saving depth maps
+    options.update_state_every_iteration = true;
+    options.logging_type = ceres::PER_MINIMIZER_ITERATION;
+
+    auto* callback = new AlbedoCallback(
+        data.width, data.height, rho.data(), iteration_count
+    );
+
+    options.callbacks.push_back(callback);
+
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+
+    options.callbacks.clear();
+}
+
+void optimizeDepthAndAlbedo(Eigen::VectorXd& z, Eigen::VectorXd& rho, Eigen::VectorXd& distances, const PrecomputedData& data) {
 
     std::cout << "Matrix sizes:" << std::endl;
     std::cout << "I: " << data.I.rows() << "x" << data.I.cols() << std::endl;
@@ -473,13 +606,23 @@ void optimizeDepthAndAlbedo(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Prec
     // Print camera matrix
     std::cout << "Camera matrix K:\n" << data.K_pixel << std::endl;
 
-    int max_iterations = 10;
+    int max_iterations = 50;
+
+    double light_intensity = 1.0;
+
+    Eigen::Vector3d sphere_position = Eigen::Vector3d(
+        0.37562,
+        0.31016,
+        2.08445);
+
     for (int i = 0; i < max_iterations; ++i) {
         std::cout << "Depth iteration: " << i << std::endl;
-        optimizeDepthMap(z, rho, data, i);
+        optimizeLightPos(z, rho, light_intensity, distances, sphere_position, data, i);
+        optimizeDepthMap(z, rho, light_intensity, distances, sphere_position, data, i);
         if (i == max_iterations-1) continue;
-        std::cout << "Albedo iteration: " << i << std::endl;
-        optimizeAlbedo(z, rho, data, i);
+
+        // std::cout << "Albedo iteration: " << i << std::endl;
+        optimizeAlbedo(z, rho, light_intensity, distances, sphere_position, data, i);
     }
 }
 

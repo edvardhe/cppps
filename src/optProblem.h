@@ -20,11 +20,11 @@ struct PrecomputedData {
     std::vector<Eigen::Vector3d> geometric_terms;    // geometric term for all pixels
     std::vector<Eigen::Vector3d> light_dirs; // [pixel][light]
     std::vector<Eigen::Matrix3d> J_all_pixels;    // Jacobians for all pixels
-    std::vector<double> light_distances;           // [pixel][light]
+    Eigen::Vector3d sphere_position;
 };
 
 // Function to optimize the depth map
-void optimizeDepthAndAlbedo(Eigen::VectorXd& z, Eigen::VectorXd& rho, const PrecomputedData& data);
+void optimizeDepthAndAlbedo(Eigen::VectorXd& z, Eigen::VectorXd& rho, Eigen::VectorXd& distances, const PrecomputedData& data);
 
 
 

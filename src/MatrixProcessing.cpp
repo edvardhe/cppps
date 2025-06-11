@@ -84,8 +84,13 @@ Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
 }
 
 // Implementation of loadJsonToPositionMatrix
-std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_path, const std::vector<std::string>& image_names) {
+std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(
+        const std::string& json_path,
+        const std::vector<std::string>& image_names,
+        std::vector<Eigen::Vector3d> &light_dirs,
+        Eigen::VectorXd &light_distances) {
     std::ifstream json_file(json_path);
+    std::ifstream json_file2("/home/edvard/dev/projects/cppPS/light_positions1.json");
     if (!json_file.is_open()) {
         throw std::runtime_error("Could not open JSON file: " + json_path);
     }
@@ -101,6 +106,9 @@ std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_pa
     json j;
     json_file >> j;
 
+    json j2;
+    json_file2 >> j2;
+
     Eigen::Matrix3d Rc;
     Rc << -1,  0,  0,
           0, 1,  0,
@@ -110,6 +118,9 @@ std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_pa
     size_t position_dim = 3;
     std::vector<Eigen::Vector3d> positions = std::vector<Eigen::Vector3d>(num_images);
 
+    light_dirs = std::vector<Eigen::Vector3d>(num_images);
+    light_distances = Eigen::VectorXd(num_images);
+
     for (size_t i = 0; i < num_images; ++i) {
         const std::string& file_name = image_names[i];
         bool found = false;
@@ -117,15 +128,29 @@ std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_pa
         for (const auto& entry : j) {
             if (entry["image_name"] == file_name) {
                 const auto& light_position_world = entry["light_position"];
-                
+                const auto& light_direction = entry["light_direction"];
+                const auto& distance_to_sphere  = entry["distance_to_sphere"];
                 Eigen::Vector3d pos_world(light_position_world[0],
                     light_position_world[1],
                     light_position_world[2]);
 
+                Eigen::Vector3d dir(light_direction[0],
+                    light_direction[1],
+                    light_direction[2]);
+
+                double distance = distance_to_sphere;
+
+                Eigen::Vector3d sphere_pos(37.562,
+                    31.016,
+                    208.445);
+
                 // Transform from world to camera coordinates
                 // p_cam = R^T * (p_world - t)
-                positions[i] = (Rc * (R.transpose() * (pos_world - t))) / 100.0; // Convert to meters
+                positions[i] = (sphere_pos + dir * distance) / 100.0; // Convert to meters
                 //positions[i] = pos_world / 100.0; // Convert to meters
+
+                light_dirs[i] = dir;
+                light_distances[i] = distance/100.0;
 
                 found = true;
                 break;
@@ -150,27 +175,6 @@ Eigen::Matrix3d calculateCroppedKMatrix(Eigen::Matrix3d K, int start_x, int star
     K_cropped_px(1,2) -= start_y;
 
     return K_cropped_px;
-}
-
-void precomputeGeometricTerms(PrecomputedData& data) {
-    std::vector<Eigen::Vector3d> geometric_terms(data.I.rows() * data.I.cols());
-    data.geometric_terms = geometric_terms;
-
-    #pragma omp parallel for collapse(1) schedule(dynamic) num_threads(16)
-    for (int j = 0; j < data.I.rows(); ++j) {
-        for (int i = 0; i < data.I.cols(); ++i) {
-
-            int idx = j * data.I.cols() + i;
-            // Compute geometric terms for pixel (j, i)
-
-            double distance = data.light_distances[idx];
-            Eigen::Vector3d light_dir = data.light_dirs[idx];
-            double falloff = 1.0 / (distance * distance);
-            Eigen::Vector3d s = falloff * light_dir;
-
-            data.geometric_terms[idx] = s;
-        }
-    }
 }
 
 Eigen::Matrix3Xd KPixelToCm(Eigen::Matrix3Xd K_px, float px_per_cm_x, float px_per_cm_y) {
@@ -234,29 +238,4 @@ Eigen::Matrix3Xd KCmToPixel(Eigen::Matrix3Xd K_cm, float px_per_m_x, float px_pe
         K_px(1, 2) *= px_per_m_y;
     
         return K_px;
-}
-
-void precomputeLightVectors(PrecomputedData& data, double z_init) {
-
-    int num_pixels = data.I.rows();
-    int num_lights = data.I.cols();
-
-    data.light_dirs.resize(num_pixels * num_lights);
-    data.light_distances.resize(num_pixels * num_lights);
-
-#pragma omp parallel for schedule(dynamic) num_threads(16)
-    for (int j = 0; j < num_pixels; ++j) {
-        int x_j = j / data.height;
-        int y_j = j % data.height;
-        // Back-project pixel j using initial depth (z_init[j])
-        Eigen::Vector3d ray_dir = data.K.inverse() * Eigen::Vector3d(x_j, y_j, 1.0);
-        Eigen::Vector3d x_j_3D = z_init * ray_dir;
-
-        for (int i = 0; i < num_lights; ++i) {
-            int idx = j * num_lights + i;
-            Eigen::Vector3d light_dir = data.light_positions[i] - x_j_3D;
-            data.light_distances[idx] = light_dir.norm();
-            data.light_dirs[idx] = light_dir.normalized();
-        }
-    }
 }

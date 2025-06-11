@@ -24,13 +24,13 @@ Eigen::MatrixXd loadImagesToObservationMatrix(const std::string& directory_path,
                                               int roi_width,
                                               int roi_height);
 std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_path,
-                                                      const std::vector<std::string>& image_names);
+                                                      const std::vector<std::string>& image_names,
+                                                      std::vector<Eigen::Vector3d> &light_dirs,
+                                                      Eigen::VectorXd &light_distances);
 
 Eigen::Matrix3d calculateCroppedKMatrix(Eigen::Matrix3d K,
                                         int start_x,
                                         int start_y);
-
-void precomputeGeometricTerms(PrecomputedData& data);
 
 Eigen::Matrix3Xd KPixelToCm(Eigen::Matrix3Xd K_px,
                             float px_per_m_x,
@@ -39,9 +39,6 @@ Eigen::Matrix3Xd KPixelToCm(Eigen::Matrix3Xd K_px,
 Eigen::Matrix3Xd KCmToPixel(Eigen::Matrix3Xd K_cm,
                             float px_per_c_x,
                             float px_per_m_y);
-
-void precomputeLightVectors(PrecomputedData& data,
-                            double z_init);
 
 void precomputeJacobian(PrecomputedData& data);
 

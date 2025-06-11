@@ -80,7 +80,10 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
     int n_pixels = images.rows();
     int n_images = images.cols();
 
-    std::vector<Eigen::Vector3d> light_positions = loadJsonToPositionMatrix("/home/edvard/dev/projects/cppPS/light_positions.json", image_names);
+    std::vector<Eigen::Vector3d> light_dirs;
+    Eigen::VectorXd light_distances;
+
+    std::vector<Eigen::Vector3d> light_positions = loadJsonToPositionMatrix("/home/edvard/dev/projects/cppPS/light_positions.json", image_names, light_dirs, light_distances);
 
     // Print stats
     std::cout << "Loaded " << n_images << " images with " << n_pixels
@@ -102,6 +105,11 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
     data.Kinv_t = data.K.inverse().transpose();
     data.I = images;          // Input images
     data.light_positions = light_positions; // Your calibration data
+    data.light_dirs = light_dirs;
+    data.sphere_position = Eigen::Vector3d(
+        0.37562,
+        0.31016,
+        2.08445);
 
     //precomputeJacobian(data);
 
@@ -130,7 +138,7 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
     // z-step: Update depth map
     std::cout << "I rows: " << data.I.rows() << ", cols: " << data.I.cols() << std::endl;
 
-    optimizeDepthAndAlbedo(z, rho, data);
+    optimizeDepthAndAlbedo(z, rho, light_distances, data);
 
     Eigen::MatrixXd depth_map(Eigen::Map<Eigen::MatrixXd>(z.data(), data.height, data.width));
 
@@ -217,7 +225,7 @@ int main(int argc, char** argv) {
     double_cross_roi.height = 467;
 
 
-    std::vector<ROI> regions_of_interest_test = {R_roi};
+    std::vector<ROI> regions_of_interest_test = {small_letters_roi};
 
      for (const ROI& roi : regions_of_interest_test) {
          std::string example_dir = "/home/edvard/Documents/ReportExamplesTest/" + roi.name;
