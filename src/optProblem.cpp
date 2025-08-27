@@ -6,7 +6,6 @@
 #include <Eigen/Dense>
 #include <utility>
 #include <vector>
-#include <c++/12/bits/std_thread.h>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/core/eigen.hpp>
