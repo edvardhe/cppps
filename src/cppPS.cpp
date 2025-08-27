@@ -2,15 +2,14 @@
 #include <vector>
 #include <filesystem>
 #include <eigen3/Eigen/Dense>
-#include <opencv2/opencv.hpp>
-
 #include <opencv2/core/eigen.hpp>
-#include <opencv2/core/utility.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include "depthMapHandler.h"
 #include "MatrixProcessing.h"
 #include "optProblem.h"
+#include <QApplication>
+#include "Interface/MainWindow.h"
 
 namespace fs = std::filesystem;
 
@@ -138,6 +137,13 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
 }
 
 int main(int argc, char** argv) {
+
+    QApplication app(argc, argv);
+
+    MainWindow *window = new MainWindow();
+    window->show();
+
+    return app.exec();
 
     Eigen::initParallel();
     Eigen::setNbThreads(4);
