@@ -27,7 +27,7 @@ public:
 
     ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override {
         // Save the current depth map
-        output_dir_ = "/home/edvard/dev/projects/cppPS/depthMapIterations";
+        output_dir_ = std::string(PROJECT_SOURCE_DIR) + "/depthMapIterations";
 
         std::string output_name = "iter_" + std::to_string(iteration_count_);
 
@@ -72,7 +72,7 @@ public:
 
     ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override {
         // Save the current depth map
-        output_dir_ = "/home/edvard/dev/projects/cppPS/AlbedoIterations";
+        output_dir_ = std::string(PROJECT_SOURCE_DIR) + "/AlbedoIterations";
 
         std::string output_name = "iter_" + std::to_string(iteration_count_);
 
@@ -305,8 +305,8 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
             );
 
             double initial_depth = 2.147;
-            problem.SetParameterLowerBound(&z(j), 0, initial_depth-0.5);
-            problem.SetParameterUpperBound(&z(j), 0, initial_depth+0.5);
+            //problem.SetParameterLowerBound(&z(j), 0, initial_depth-0.5);
+            //problem.SetParameterUpperBound(&z(j), 0, initial_depth+0.5);
         }
     }
 
@@ -334,7 +334,7 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
     options.preconditioner_type = ceres::SCHUR_JACOBI;
     options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 1;
+    options.max_num_iterations = 5;
     options.max_linear_solver_iterations = 5;
     options.function_tolerance = 1e-9;
     options.gradient_tolerance = 1e-7;
@@ -428,7 +428,7 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
     options.preconditioner_type = ceres::JACOBI;
     options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 1;
+    options.max_num_iterations = 5;
     options.max_linear_solver_iterations = 10;
     options.function_tolerance = 1e-9;
     options.gradient_tolerance = 1e-7;

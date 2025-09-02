@@ -69,7 +69,8 @@ std::vector<ROI> getRois(int image_width, int image_height, int roi_width, int r
 Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
     // Load images with ROI
     std::cout << "Computing region of interest: " + roi.name << std::endl;
-    std::string path = "/home/edvard/dev/projects/cppPS/color";
+    std::string path = std::string(PROJECT_SOURCE_DIR) + "/color";
+
     std::vector<std::string> image_names;
     Eigen::MatrixXd images = loadImagesToObservationMatrix(path, image_names,
                                                       roi.start_x, roi.start_y,
@@ -80,7 +81,7 @@ Eigen::MatrixXd runWithRoi(Eigen::Matrix3d K_pixel, ROI roi) {
     int n_pixels = images.rows();
     int n_images = images.cols();
 
-    std::vector<Eigen::Vector3d> light_positions = loadJsonToPositionMatrix("/home/edvard/dev/projects/cppPS/light_positions.json", image_names);
+    std::vector<Eigen::Vector3d> light_positions = loadJsonToPositionMatrix(std::string(PROJECT_SOURCE_DIR) + "/light_positions.json", image_names);
 
     // Print stats
     std::cout << "Loaded " << n_images << " images with " << n_pixels
@@ -220,7 +221,7 @@ int main(int argc, char** argv) {
     std::vector<ROI> regions_of_interest_test = {R_roi};
 
      for (const ROI& roi : regions_of_interest_test) {
-         std::string example_dir = "/home/edvard/Documents/ReportExamplesTest/" + roi.name;
+         std::string example_dir = "ReportExamplesTest/" + roi.name;
          Eigen::MatrixXd z = runWithRoi(K_pixel, roi);
          depth::saveDepthMap(z, example_dir, roi.name);
      }
@@ -231,7 +232,7 @@ int main(int argc, char** argv) {
 
     std::vector<ROI> regions_of_interest = getRois(image_width, image_height, roi_width, roi_height);
     for (const ROI& roi : regions_of_interest) {
-        std::string patch_dir = "/home/edvard/dev/projects/cppPS/depthPatches";
+        std::string patch_dir = std::string(PROJECT_SOURCE_DIR) + "/depthPatches";
         std::string patch_path = patch_dir + "/depth_" + std::to_string(roi.x) + "_" + std::to_string(roi.y) + ".dmap";
         if (fs::exists(patch_path)) {
             continue;
@@ -242,15 +243,15 @@ int main(int argc, char** argv) {
 
 
         Eigen::MatrixXd z = runWithRoi(K_pixel, roi);
-        depth::saveDepthMap(z, "/home/edvard/dev/projects/cppPS/depthMapPatches",
+        depth::saveDepthMap(z, std::string(PROJECT_SOURCE_DIR) + "/depthMapPatches",
                             std::to_string(roi.x) + "_" + std::to_string(roi.y));
         depth::saveDepthMapBinary(z.data(), roi, patch_dir);
     }
 
     // After generating and saving all the depth map patches, stitch them together
-    std::string patch_dir = "/home/edvard/dev/projects/cppPS/depthPatches";
+    std::string patch_dir = std::string(PROJECT_SOURCE_DIR) + "/depthPatches";
     Eigen::MatrixXd mega_depth_map = depth::stitchDepthMaps(patch_dir);
-    depth::saveDepthMap(mega_depth_map, "/home/edvard/dev/projects/cppPS/megaDepthMap", "mega");
+    depth::saveDepthMap(mega_depth_map, std::string(PROJECT_SOURCE_DIR) + "/megaDepthMap", "mega");
 
 }
 

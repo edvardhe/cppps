@@ -37,8 +37,10 @@ add_executable(cppPS
                 src/optProblem.cpp
         src/depthMapHandler.cpp
         src/depthMapHandler.h
-        src/imagePreprocessing.cpp
-        src/imagePreprocessing.h
+)
+
+target_compile_definitions(cppPS PRIVATE
+        PROJECT_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 # Link OpenCV and set include directories
