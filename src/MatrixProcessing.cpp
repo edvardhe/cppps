@@ -124,8 +124,8 @@ std::vector<Eigen::Vector3d> loadJsonToPositionMatrix(const std::string& json_pa
 
                 // Transform from world to camera coordinates
                 // p_cam = R^T * (p_world - t)
-                positions[i] = (Rc * (R.transpose() * (pos_world - t))) / 100.0; // Convert to meters
-                //positions[i] = pos_world / 100.0; // Convert to meters
+                //positions[i] = (Rc * (R.transpose() * (pos_world - t))) / 100.0; // Convert to meters
+                positions[i] = pos_world / 100.0; // Convert to meters
 
                 found = true;
                 break;
