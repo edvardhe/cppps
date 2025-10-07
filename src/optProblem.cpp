@@ -6,7 +6,7 @@
 #include <Eigen/Dense>
 #include <utility>
 #include <vector>
-#include <c++/12/bits/std_thread.h>
+#include <threads.h>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/core/eigen.hpp>
@@ -27,7 +27,7 @@ public:
 
     ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override {
         // Save the current depth map
-        output_dir_ = "/home/edvard/dev/projects/cppPS/depthMapIterations";
+        output_dir_ = std::string(PROJECT_DIR) + "/depthMapIterations";
 
         std::string output_name = "iter_" + std::to_string(iteration_count_);
 
@@ -72,7 +72,7 @@ public:
 
     ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override {
         // Save the current depth map
-        output_dir_ = "/home/edvard/dev/projects/cppPS/AlbedoIterations";
+        output_dir_ = std::string(PROJECT_DIR) + "/AlbedoIterations";
 
         std::string output_name = "iter_" + std::to_string(iteration_count_);
 
@@ -334,19 +334,19 @@ void optimizeDepthMap(Eigen::VectorXd& z, Eigen::VectorXd& rho, const Precompute
     options.preconditioner_type = ceres::SCHUR_JACOBI;
     options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 1;
+    options.max_num_iterations = 5;
     options.max_linear_solver_iterations = 5;
     options.function_tolerance = 1e-9;
     options.gradient_tolerance = 1e-7;
     options.parameter_tolerance = 4e-9;
     options.use_nonmonotonic_steps = true;
     options.jacobi_scaling = true;
-    options.use_inner_iterations = false;
+    options.use_inner_iterations = true;
     options.minimizer_type = ceres::TRUST_REGION;
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
 
     options.initial_trust_region_radius = 1.0;  // default 10
-    options.max_trust_region_radius = 10.0;    // Limit how large the trust region can grow
+    options.max_trust_region_radius = 100.0;    // Limit how large the trust region can grow
 
     options.num_threads = 16;
 
@@ -428,20 +428,20 @@ void optimizeAlbedo(Eigen::VectorXd &z, Eigen::VectorXd &rho, const PrecomputedD
     options.preconditioner_type = ceres::JACOBI;
     options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 1;
+    options.max_num_iterations = 5;
     options.max_linear_solver_iterations = 10;
     options.function_tolerance = 1e-9;
     options.gradient_tolerance = 1e-7;
     options.parameter_tolerance = 4e-9;
     options.use_nonmonotonic_steps = true;
     options.jacobi_scaling = true;
-    options.use_inner_iterations = false;
+    options.use_inner_iterations = true;
     options.minimizer_type = ceres::TRUST_REGION;
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
 
     // Take smaller initial steps
     options.initial_trust_region_radius = 1.0;  // default 10
-    options.max_trust_region_radius = 10.0;
+    options.max_trust_region_radius = 100.0;
 
     options.num_threads = 16;
 

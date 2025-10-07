@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
+# set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
 
-project(cppPS LANGUAGES CXX CUDA)
+project(cppPS LANGUAGES CXX)
 
-# Change this line from Debug to Release for optimization
 set(CMAKE_BUILD_TYPE Release)
 
 # Add optimization flags for Release build
@@ -12,6 +11,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG -flto")
 
 # Keep debug flags for when you need debugging
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+
+add_compile_definitions(PROJECT_DIR="${CMAKE_SOURCE_DIR}")
 
 
 # Find Eigen3 (no linking required for header-only library)
@@ -36,9 +37,7 @@ add_executable(cppPS
                 src/MatrixProcessing.cpp
                 src/optProblem.cpp
         src/depthMapHandler.cpp
-        src/depthMapHandler.h
         src/imagePreprocessing.cpp
-        src/imagePreprocessing.h
 )
 
 # Link OpenCV and set include directories
