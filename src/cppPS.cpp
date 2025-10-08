@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
     // After generating and saving all the depth map patches, stitch them together
     std::string patch_dir = std::string(PROJECT_DIR) + "/depthPatches";
     Eigen::MatrixXd mega_depth_map = depth::stitchDepthMaps(patch_dir);
-    depth::saveDepthMap(mega_depth_map, std::string(PROJECT_DIR) + ">/megaDepthMap", "mega");
+    depth::saveDepthMap(mega_depth_map, std::string(PROJECT_DIR) + "/megaDepthMap", "mega");
 
 }
 
