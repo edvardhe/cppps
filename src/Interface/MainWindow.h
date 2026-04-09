@@ -4,10 +4,16 @@
 
 #include <QMainWindow>
 #include <QMenuBar>
+#include "../ProblemConfig.h"
 
 class QListWidget;
 class QStackedWidget;
 class PhotoDirectoryWidget;
+class CameraParametersWidget;
+class IndicatorSpheresWidget;
+class ObjectParametersWidget;
+class RegionsOfInterestWidget;
+class ReviewAndSelectWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -26,8 +32,22 @@ private:
     void setupUi();
     void createContentWidgets();
 
+    void syncConfigFromWidgets();
+    void syncWidgetsFromConfig();
+
+    void saveProjectConfig();
+    void loadProjectConfig();
+    QString getProjectConfigPath() const;
+
+    ProblemConfig m_problemConfig;
+
     // Widgets
     PhotoDirectoryWidget* m_photoDirectoryWidget;
+    CameraParametersWidget* m_cameraParametersWidget;
+    IndicatorSpheresWidget* m_indicatorSpheresWidget;
+    ObjectParametersWidget* m_objectParametersWidget;
+    RegionsOfInterestWidget* m_regionsOfInterestWidget;
+    ReviewAndSelectWidget* m_reviewAndSelectWidget;
 
     QListWidget* sidebarList;
     QStackedWidget* stackedWidget;

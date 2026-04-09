@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.10)
 project(cppPS LANGUAGES CXX)
 
 # Change this line from Debug to Release for optimization
-set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE Debug)
 
 # Add optimization flags for Release build
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG -flto")
@@ -17,7 +17,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui REQUIRED)
 
 # Find Eigen3 (no linking required for header-only library)
 find_package(Eigen3 REQUIRED)
@@ -56,6 +56,9 @@ add_executable(cppPS
         src/Interface/widgets/ObjectParametersWidget.h
         src/Interface/widgets/RegionsOfInterestWidget.cpp
         src/Interface/widgets/RegionsOfInterestWidget.h
+        src/Interface/widgets/ReviewAndSelectWidget.cpp
+        src/Interface/widgets/ReviewAndSelectWidget.h
+        src/ProblemConfig.h
 )
 
 # Link OpenCV and set include directories

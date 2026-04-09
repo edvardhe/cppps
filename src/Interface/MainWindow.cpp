@@ -10,11 +10,22 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QStandardPaths>
+#include <QFile>
+#include <QImageReader>
 #include "widgets/PhotoDirectoryWidget.h"
+#include "widgets/CameraParametersWidget.h"
+#include "widgets/IndicatorSpheresWidget.h"
+#include "widgets/ObjectParametersWidget.h"
+#include "widgets/RegionsOfInterestWidget.h"
+#include "widgets/ReviewAndSelectWidget.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    // Increase Qt image allocation limit (default is 128 MB)
+    // Set to 512 MB to handle large images
+    QImageReader::setAllocationLimit(512);
+
     setWindowTitle("cppPS");
     resize(800, 600);
     setupMenuBar();
@@ -130,7 +141,8 @@ void MainWindow::onOpenProject() {
 }
 
 void MainWindow::onSaveProject() {
-    QMessageBox::information(this, "Info", "Save Project clicked!");
+    saveProjectConfig();
+    QMessageBox::information(this, "Info", "Project settings saved!");
 }
 
 
@@ -152,6 +164,7 @@ void MainWindow::setupUi()
     sidebarList->addItem("Indicator Spheres");
     sidebarList->addItem("Initial Guess");
     sidebarList->addItem("Regions of Interest");
+    sidebarList->addItem("Review and Select ROI");
     sidebarList->setFixedWidth(180);
     contentHLayout->addWidget(sidebarList);
 
@@ -176,36 +189,171 @@ void MainWindow::createContentWidgets()
     // Photo Directory page
     m_photoDirectoryWidget = new PhotoDirectoryWidget();
     m_photoDirectoryWidget->setPhotoDirectory("/path/to/your/photos");
-    QVBoxLayout* photoLayout = new QVBoxLayout(m_photoDirectoryWidget);
-    photoLayout->addWidget(new QLabel("Photo Directory Settings"));
-    // Add your photo directory controls here
+
+    // Connect signals
+    connect(m_photoDirectoryWidget, &PhotoDirectoryWidget::photoDirectoryChanged,
+    this,[this](const QString& newPath) {
+        m_problemConfig.photoDirectory = newPath;
+        loadProjectConfig(); // Load config when directory changes
+        saveProjectConfig(); // Auto-save after loading (creates .project dir if needed)
+    });
+
     stackedWidget->addWidget(m_photoDirectoryWidget);
 
+
     // Camera Parameters page
-    QWidget* cameraParamsWidget = new QWidget();
-    QVBoxLayout* cameraLayout = new QVBoxLayout(cameraParamsWidget);
-    cameraLayout->addWidget(new QLabel("Camera Parameters Settings"));
-    // Add your camera parameter controls here
-    stackedWidget->addWidget(cameraParamsWidget);
+    m_cameraParametersWidget = new CameraParametersWidget();
+
+    // Connect camera parameters to config
+    connect(m_cameraParametersWidget, &CameraParametersWidget::cameraConfigChanged,
+    this, [this](const CameraConfig& config) {
+        m_problemConfig.camera = config;
+        saveProjectConfig(); // Auto-save when camera config changes
+    });
+
+    // Connect photo directory changes to camera parameters update
+    connect(m_photoDirectoryWidget, &PhotoDirectoryWidget::photoDirectoryChanged,
+            m_cameraParametersWidget, &CameraParametersWidget::updateFromDirectory);
+
+    stackedWidget->addWidget(m_cameraParametersWidget);
 
     // Indicator Spheres page
-    QWidget* indicatorSpheresWidget = new QWidget();
-    QVBoxLayout* spheresLayout = new QVBoxLayout(indicatorSpheresWidget);
-    spheresLayout->addWidget(new QLabel("Indicator Spheres Settings"));
-    // Add your indicator spheres controls here
-    stackedWidget->addWidget(indicatorSpheresWidget);
+    m_indicatorSpheresWidget = new IndicatorSpheresWidget();
 
-    // Initial Guess page
-    QWidget* initialGuessWidget = new QWidget();
-    QVBoxLayout* guessLayout = new QVBoxLayout(initialGuessWidget);
-    guessLayout->addWidget(new QLabel("Initial Guess Settings"));
-    // Add your initial guess controls here
-    stackedWidget->addWidget(initialGuessWidget);
+    // Connect indicator spheres to config
+    connect(m_indicatorSpheresWidget, &IndicatorSpheresWidget::indicatorConfigChanged,
+    this, [this](const IndicatorSphereConfig& config) {
+        m_problemConfig.indicators = config;
+        saveProjectConfig(); // Auto-save when indicator config changes
+    });
+
+    // Connect photo directory changes to indicator spheres
+    connect(m_photoDirectoryWidget, &PhotoDirectoryWidget::photoDirectoryChanged,
+            m_indicatorSpheresWidget, &IndicatorSpheresWidget::setPhotoDirectory);
+
+    stackedWidget->addWidget(m_indicatorSpheresWidget);
+
+    // Initial Guess page (Object Parameters)
+    m_objectParametersWidget = new ObjectParametersWidget();
+
+    // Connect object parameters to config
+    connect(m_objectParametersWidget, &ObjectParametersWidget::objectConfigChanged,
+    this, [this](const ObjectConfig& config) {
+        m_problemConfig.object = config;
+        saveProjectConfig(); // Auto-save when object config changes
+    });
+
+    stackedWidget->addWidget(m_objectParametersWidget);
 
     // Regions of Interest page
-    QWidget* roiWidget = new QWidget();
-    QVBoxLayout* roiLayout = new QVBoxLayout(roiWidget);
-    roiLayout->addWidget(new QLabel("Regions of Interest Settings"));
-    // Add your ROI controls here
-    stackedWidget->addWidget(roiWidget);
+    m_regionsOfInterestWidget = new RegionsOfInterestWidget();
+
+    // Connect ROI widget to config
+    connect(m_regionsOfInterestWidget, &RegionsOfInterestWidget::roisChanged,
+    this, [this](const QVector<ROIConfig>& rois) {
+        m_problemConfig.rois = rois;
+        m_reviewAndSelectWidget->setRois(rois);
+        saveProjectConfig(); // Auto-save when ROIs change
+    });
+
+    connect(m_regionsOfInterestWidget, &RegionsOfInterestWidget::selectedRoiChanged,
+    this, [this](int index) {
+        m_problemConfig.selectedRoiIndex = index;
+        m_reviewAndSelectWidget->setSelectedRoiIndex(index);
+        saveProjectConfig(); // Auto-save when selection changes
+    });
+
+    // Connect photo directory changes to ROI widget
+    connect(m_photoDirectoryWidget, &PhotoDirectoryWidget::photoDirectoryChanged,
+            m_regionsOfInterestWidget, &RegionsOfInterestWidget::setPhotoDirectory);
+
+    stackedWidget->addWidget(m_regionsOfInterestWidget);
+
+    // Review and Select page
+    m_reviewAndSelectWidget = new ReviewAndSelectWidget();
+
+    // Keep review page in sync with ROI editor
+    connect(m_regionsOfInterestWidget, &RegionsOfInterestWidget::roisChanged,
+            m_reviewAndSelectWidget, &ReviewAndSelectWidget::setRois);
+
+    // Connect camera config to review widget
+    connect(m_cameraParametersWidget, &CameraParametersWidget::cameraConfigChanged,
+        m_reviewAndSelectWidget, &ReviewAndSelectWidget::setCameraProperties);
+
+    // Persist selection changes made from review page
+    connect(m_reviewAndSelectWidget, &ReviewAndSelectWidget::selectedRoiChanged,
+            this, [this]() {
+                m_problemConfig.selectedRoiIndex = m_reviewAndSelectWidget->selectedRoiIndex();
+                saveProjectConfig();
+            });
+
+    stackedWidget->addWidget(m_reviewAndSelectWidget);
+}
+
+QString MainWindow::getProjectConfigPath() const {
+    if (m_problemConfig.photoDirectory.isEmpty()) {
+        return QString();
+    }
+
+    QDir photoDir(m_problemConfig.photoDirectory);
+    QString projectDir = photoDir.filePath(".project");
+    return QDir(projectDir).filePath("config.json");
+}
+
+void MainWindow::saveProjectConfig() {
+    QString configPath = getProjectConfigPath();
+    if (configPath.isEmpty()) {
+        return;
+    }
+
+    // Create .project directory if it doesn't exist
+    QFileInfo fileInfo(configPath);
+    QDir dir = fileInfo.dir();
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+
+    // Convert config to JSON
+    QJsonDocument doc(m_problemConfig.toJson());
+
+    // Write to file
+    QFile file(configPath);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+    }
+}
+
+void MainWindow::loadProjectConfig() {
+    QString configPath = getProjectConfigPath();
+    if (configPath.isEmpty()) {
+        return;
+    }
+
+    QFile file(configPath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+
+    QByteArray data = file.readAll();
+    file.close();
+
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isNull() && doc.isObject()) {
+        m_problemConfig = ProblemConfig::fromJson(doc.object());
+        syncWidgetsFromConfig();
+    }
+}
+
+void MainWindow::syncConfigFromWidgets() {
+    // This is already being done through signal connections
+}
+
+void MainWindow::syncWidgetsFromConfig() {
+    m_cameraParametersWidget->setConfig(m_problemConfig.camera);
+    m_indicatorSpheresWidget->setConfig(m_problemConfig.indicators);
+    m_objectParametersWidget->setConfig(m_problemConfig.object);
+    m_regionsOfInterestWidget->setRois(m_problemConfig.rois);
+    m_reviewAndSelectWidget->setRois(m_problemConfig.rois);
+    m_reviewAndSelectWidget->setSelectedRoiIndex(m_problemConfig.selectedRoiIndex);
 }

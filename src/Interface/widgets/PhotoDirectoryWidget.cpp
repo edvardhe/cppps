@@ -38,7 +38,7 @@ void PhotoDirectoryWidget::setupUI() {
     m_pathLabel = new QLabel("Photo Directory:");
     m_pathLineEdit = new QLineEdit();
     m_pathLineEdit->setReadOnly(true);
-    m_refreshButton = new QPushButton("Refresh");
+    m_refreshButton = new QPushButton("Browse");
 
     m_pathLayout->addWidget(m_pathLabel);
     m_pathLayout->addWidget(m_pathLineEdit, 1); // Stretch factor 1
@@ -53,11 +53,24 @@ void PhotoDirectoryWidget::setupUI() {
 
     // Add to main layout
     m_mainLayout->addLayout(m_pathLayout);
-    m_mainLayout->addWidget(m_photoListWidget, 1); // Stretch factor 1
+    m_mainLayout->addWidget(m_photoListWidget, 1);
 
-    // Connect signals
     connect(m_refreshButton, &QPushButton::clicked,
-            this, &PhotoDirectoryWidget::refreshPhotoList);
+            this, &PhotoDirectoryWidget::browseForDirectory);
+}
+
+void PhotoDirectoryWidget::browseForDirectory() {
+    QString directory = QFileDialog::getExistingDirectory(
+        this,
+        tr("Select Photo Directory"),
+        m_currentDirectory.isEmpty()
+            ? QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
+            : m_currentDirectory
+    );
+
+    if (!directory.isEmpty()) {
+        setPhotoDirectory(directory);
+    }
 }
 
 void PhotoDirectoryWidget::setPhotoDirectory(const QString &directoryPath) {
@@ -65,6 +78,7 @@ void PhotoDirectoryWidget::setPhotoDirectory(const QString &directoryPath) {
         m_currentDirectory = directoryPath;
         m_pathLineEdit->setText(directoryPath);
         refreshPhotoList();
+        emit photoDirectoryChanged(m_currentDirectory);
     }
 }
 
@@ -72,11 +86,28 @@ QString PhotoDirectoryWidget::getPhotoDirectory() const {
     return m_currentDirectory;
 }
 
+QStringList PhotoDirectoryWidget::supportedFormats() const {
+    return m_supportedFormats;
+}
+
+void PhotoDirectoryWidget::setSupportedFormats(const QStringList &formats) {
+    m_supportedFormats = formats;
+}
+
+QStringList PhotoDirectoryWidget::selectedPhotoPaths() const {
+    QStringList paths;
+    for (QListWidgetItem* item : m_photoListWidget->selectedItems()) {
+        paths << item->toolTip();
+    }
+    return paths;
+}
+
 void PhotoDirectoryWidget::onDirectoryPathChanged() {
     QString newPath = m_pathLineEdit->text();
     if (newPath != m_currentDirectory) {
         m_currentDirectory = newPath;
         refreshPhotoList();
+        emit photoDirectoryChanged(m_currentDirectory);
     }
 }
 
@@ -124,16 +155,19 @@ void PhotoDirectoryWidget::loadPhotosFromDirectory() {
 }
 
 QPixmap PhotoDirectoryWidget::createThumbnail(const QString &imagePath, const QSize &size) {
-    QPixmap originalPixmap(imagePath);
+    QImageReader reader(imagePath);
+    reader.setAutoTransform(true);
+    reader.setScaledSize(size);
 
-    if (originalPixmap.isNull()) {
+    QImage image = reader.read();
+    if (image.isNull()) {
         // Return a placeholder if image can't be loaded
         QPixmap placeholder(size);
         placeholder.fill(Qt::lightGray);
         return placeholder;
     }
 
-    return originalPixmap.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    return QPixmap::fromImage(image).scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 
 bool PhotoDirectoryWidget::isImageFile(const QString &fileName) {

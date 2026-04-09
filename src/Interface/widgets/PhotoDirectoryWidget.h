@@ -17,6 +17,7 @@
 #include <QPixmap>
 #include <QDir>
 #include <QFileInfo>
+#include "../../ProblemConfig.h"
 
 class PhotoDirectoryWidget : public QWidget {
     Q_OBJECT
@@ -26,8 +27,17 @@ public:
     void setPhotoDirectory(const QString &directoryPath);
     QString getPhotoDirectory() const;
 
+    QStringList supportedFormats() const;
+    void setSupportedFormats(const QStringList &formats);
+
+    QStringList selectedPhotoPaths() const;
+
+signals:
+    void photoDirectoryChanged(const QString& directoryPath);
+
 private slots:
     void onDirectoryPathChanged();
+    void browseForDirectory();
     void refreshPhotoList();
 
 private:
